@@ -36,7 +36,10 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
   const body = await req.json()
-  const { clientName, clientId, clientPhone, clientCity, date, validity, items } = body
+
+  // ✅ initialPayments is now destructured from the request body
+  // Previously it was missing here, which is why Step 6 threw a ReferenceError
+  const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments } = body
 
   if (!clientName || !items?.length) {
     return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
@@ -63,12 +66,12 @@ export async function POST(req: NextRequest) {
 
   const invoiceNumber = `PF-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`
 
-  // Step 3 — calculate total
+  // Step 3 — calculate total from line items
   const total = items.reduce((sum: number, item: any) => {
     return sum + item.quantity * item.unit_price
   }, 0)
 
-  // Step 4 — create invoice
+  // Step 4 — create the invoice record
   const { data: invoice, error: invoiceError } = await supabaseAdmin
     .from('invoices')
     .insert({
@@ -84,7 +87,7 @@ export async function POST(req: NextRequest) {
 
   if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 500 })
 
-  // Step 5 — save line items
+  // Step 5 — save line items (photos stored as base64)
   const itemsToInsert = items.map((item: any) => ({
     invoice_id: invoice.id,
     photo_base64: item.photo_base64 || null,
@@ -97,6 +100,33 @@ export async function POST(req: NextRequest) {
     .insert(itemsToInsert)
 
   if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
+
+  // Step 6 — save initial payments if the owner recorded any upfront
+  // initialPayments is optional — most invoices will have none at creation time
+  if (initialPayments && initialPayments.length > 0) {
+    const paymentsToInsert = initialPayments.map((p: any) => ({
+      invoice_id: invoice.id,
+      amount: Number(p.amount),
+      date: p.date,
+      note: p.note || null,
+    }))
+
+    const { error: paymentsError } = await supabaseAdmin
+      .from('payments')
+      .insert(paymentsToInsert)
+
+    if (paymentsError) return NextResponse.json({ error: paymentsError.message }, { status: 500 })
+
+    // Recalculate status now that we know how much was paid upfront
+    // Soldé = fully paid, Partiel = partially paid, En attente = nothing paid yet
+    const totalPaid = initialPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+    const newStatus = totalPaid >= total ? 'Soldé' : totalPaid > 0 ? 'Partiel' : 'En attente'
+
+    await supabaseAdmin
+      .from('invoices')
+      .update({ status: newStatus })
+      .eq('id', invoice.id)
+  }
 
   return NextResponse.json(invoice, { status: 201 })
 }
