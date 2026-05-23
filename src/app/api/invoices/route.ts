@@ -60,13 +60,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Step 2 — generate invoice number
-  const { count } = await supabaseAdmin
-    .from('invoices')
-    .select('*', { count: 'exact', head: true })
+  // Step 2 — generate invoice number per client
+// Format: PF-{clientShortId}-{year}-{count}
+// clientShortId = first 6 chars of the client UUID, enough to differentiate
+const clientShortId = finalClientId.slice(0, 6).toUpperCase()
 
-  const invoiceNumber = `PF-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`
+const { count } = await supabaseAdmin
+  .from('invoices')
+  .select('*', { count: 'exact', head: true })
+  .eq('client_id', finalClientId)
 
-  // Step 3 — calculate total from line items
+const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`// Step 3 — calculate total from line items
   const total = items.reduce((sum: number, item: any) => {
     return sum + item.quantity * item.unit_price
   }, 0)

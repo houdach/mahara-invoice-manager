@@ -117,8 +117,10 @@ export default function NewInvoicePage() {
     const reader = new FileReader()
     reader.onload = (e) => {
       const base64 = e.target?.result as string
-      updateItem(i, 'photo_base64', base64)
-      updateItem(i, 'preview', base64)
+      // Update both fields in one single state update to avoid overwriting
+      setItems(prev => prev.map((item, idx) =>
+        idx === i ? { ...item, photo_base64: base64, preview: base64 } : item
+      ))
     }
     reader.readAsDataURL(file)
   }
