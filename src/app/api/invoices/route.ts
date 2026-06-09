@@ -97,6 +97,7 @@ const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String(
     photo_base64: item.photo_base64 || null,
     quantity: item.quantity,
     unit_price: item.unit_price,
+    note: item.note || null,
   }))
 
   const { error: itemsError } = await supabaseAdmin
@@ -113,6 +114,7 @@ const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String(
       amount: Number(p.amount),
       date: p.date,
       note: p.note || null,
+      origine: p.origine || null,
     }))
 
     const { error: paymentsError } = await supabaseAdmin

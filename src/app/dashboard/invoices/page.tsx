@@ -29,7 +29,8 @@ export default function InvoicesPage() {
   useEffect(() => {
     fetch('/api/invoices')
       .then((r) => r.json())
-      .then((data) => { setInvoices(data); setLoading(false) })
+      .then((data) => { setInvoices(Array.isArray(data) ? data : []); setLoading(false) })
+      .catch(() => setLoading(false))
   }, [])
 
   const filtered = invoices.filter((inv) => {

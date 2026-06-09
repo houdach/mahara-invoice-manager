@@ -97,7 +97,7 @@ export default function ClientDetailPage() {
             Factures ({client.invoices.length})
           </h2>
           <Link
-            href="/dashboard/invoices/new"
+            href={`/dashboard/invoices/new?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`}
             className="px-4 py-2 rounded-xl text-white text-sm font-semibold"
             style={{ backgroundColor: '#702434' }}
           >

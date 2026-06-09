@@ -28,7 +28,7 @@ export async function POST(
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
   const body = await req.json()
-  const { amount, date, note } = body
+  const { amount, date, note, origine } = body
 
   if (!amount || !date) {
     return NextResponse.json({ error: 'Montant et date requis' }, { status: 400 })
@@ -37,7 +37,7 @@ export async function POST(
   // Step 1 — insert the payment
   const { data: payment, error: paymentError } = await supabaseAdmin
     .from('payments')
-    .insert({ invoice_id: params.id, amount: Number(amount), date, note: note || null })
+    .insert({ invoice_id: params.id, amount: Number(amount), date, note: note || null, origine: origine || null })
     .select()
     .single()
 

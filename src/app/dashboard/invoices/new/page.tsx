@@ -1,33 +1,32 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
-// --- Type definitions ---
-// These describe the shape of our data so TypeScript can catch mistakes early.
-// If you try to set item.quantity to a string, TypeScript will warn you.
+// --- Types ---
 type Client = { id: string; name: string; city?: string; phone?: string }
-type Item = { photo_base64: string | null; quantity: number; unit_price: number; preview: string | null }
-type Payment = { amount: number; date: string; note: string }
+type Item = {
+  photo_base64: string | null
+  quantity: number
+  unit_price: number
+  note: string
+  preview: string | null
+}
+type Payment = { amount: number; date: string; origine: string; note: string }
 
-// Helper functions to get today's date and the date 15 days from now
-// in YYYY-MM-DD format, which is what HTML date inputs expect.
 function today() {
   return new Date().toISOString().split('T')[0]
 }
-function inFifteenDays() {
-  const d = new Date()
-  d.setDate(d.getDate() + 15)
-  return d.toISOString().split('T')[0]
-}
 
-export default function NewInvoicePage() {
+function InvoiceBuilderInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // --- Mode detection ---
+  const editId = searchParams.get('edit')
+  const isEditMode = !!editId
 
   // --- Client state ---
-  // We track both the typed name and the resolved ID separately.
-  // clientId is null when the owner is typing a new name that doesn't exist yet.
-  // Once they pick from the dropdown, clientId gets set to the existing client's UUID.
   const [clientName, setClientName] = useState('')
   const [clientId, setClientId] = useState<string | null>(null)
   const [clientPhone, setClientPhone] = useState('')
@@ -38,29 +37,86 @@ export default function NewInvoicePage() {
 
   // --- Invoice state ---
   const [date, setDate] = useState(today())
-  const [validity, setValidity] = useState(inFifteenDays())
-
-  // We start with one empty item row so the form never looks blank
   const [items, setItems] = useState<Item[]>([
-    { photo_base64: null, quantity: 1, unit_price: 0, preview: null }
+    { photo_base64: null, quantity: 1, unit_price: 0, note: '', preview: null }
   ])
 
-  // --- Initial payments state ---
-  // Hidden by default. The owner clicks a button to reveal this section
-  // only when a deposit was collected at the time of the command.
+  // --- Initial payments (CREATE mode only) ---
   const [initialPayments, setInitialPayments] = useState<Payment[]>([])
   const [showPaymentSection, setShowPaymentSection] = useState(false)
 
+  // --- Payments in EDIT mode ---
+  // Existing payments are loaded read-only from the DB, just for visibility.
+  // New payments are queued in memory and POSTed individually on save.
+  const [existingPayments, setExistingPayments] = useState<any[]>([])
+  const [newPayments, setNewPayments] = useState<Payment[]>([])
+  const [showNewPaymentForm, setShowNewPaymentForm] = useState(false)
+
   const [saving, setSaving] = useState(false)
+  const [loadingInvoice, setLoadingInvoice] = useState(isEditMode)
   const [error, setError] = useState('')
 
-  // --- Autocomplete with debounce ---
-  // useEffect watches clientName. Every time it changes, we wait 300ms before
-  // calling the API. If the user types again within 300ms, we cancel the previous
-  // call with clearTimeout and start fresh. This is called "debouncing" —
-  // it prevents us from making an API call on every single keystroke.
+  // --- Load existing invoice in edit mode ---
   useEffect(() => {
-    if (clientName.length < 1) {
+    if (!editId) return
+    fetch(`/api/invoices/${editId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.clients) {
+          setClientName(data.clients.name)
+          setClientId(data.clients.id)
+          setClientPhone(data.clients.phone || '')
+          setClientCity(data.clients.city || '')
+          setIsNewClient(false)
+        }
+        setDate(data.date)
+
+        if (data.invoice_items?.length) {
+          setItems(
+            data.invoice_items.map((item: any) => ({
+              photo_base64: item.photo_base64,
+              quantity: item.quantity,
+              unit_price: Number(item.unit_price),
+              note: item.note || '',
+              preview: item.photo_base64,
+            }))
+          )
+        }
+        // Load existing payments for read-only display
+        if (data.payments?.length) {
+          setExistingPayments(
+            [...data.payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          )
+        }
+
+        setLoadingInvoice(false)
+      })
+      .catch(() => setLoadingInvoice(false))
+  }, [editId])
+
+  // --- Prefill from clients page (only in create mode) ---
+  useEffect(() => {
+    if (isEditMode) return
+    const prefilledId = searchParams.get('clientId')
+    const prefilledName = searchParams.get('clientName')
+    if (prefilledId && prefilledName) {
+      setClientName(decodeURIComponent(prefilledName))
+      setClientId(prefilledId)
+      setIsNewClient(false)
+      // Also fetch full client info to get phone + city
+      fetch(`/api/clients/${prefilledId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.phone) setClientPhone(data.phone)
+          if (data.city) setClientCity(data.city)
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  // --- Client autocomplete (only in create mode) ---
+  useEffect(() => {
+    if (isEditMode || clientName.length < 1) {
       setSuggestions([])
       return
     }
@@ -70,13 +126,9 @@ export default function NewInvoicePage() {
       setSuggestions(data)
       setShowSuggestions(true)
     }, 300)
-    // This cleanup function runs before the next effect fires.
-    // It cancels the pending timeout so we never send stale requests.
     return () => clearTimeout(timeout)
-  }, [clientName])
+  }, [clientName, isEditMode])
 
-  // Called when the owner picks an existing client from the dropdown.
-  // We fill in all known fields and mark isNewClient as false.
   function selectClient(client: Client) {
     setClientName(client.name)
     setClientId(client.id)
@@ -87,8 +139,6 @@ export default function NewInvoicePage() {
     setSuggestions([])
   }
 
-  // Called when the owner types freely — we clear the resolved ID
-  // because the name might no longer match any existing client.
   function handleClientType(val: string) {
     setClientName(val)
     setClientId(null)
@@ -96,154 +146,187 @@ export default function NewInvoicePage() {
   }
 
   // --- Item helpers ---
-  // These follow the "immutable update" pattern: instead of mutating the array
-  // directly, we create a new array and React re-renders only what changed.
   function addItem() {
-    setItems([...items, { photo_base64: null, quantity: 1, unit_price: 0, preview: null }])
+    setItems([...items, { photo_base64: null, quantity: 1, unit_price: 0, note: '', preview: null }])
   }
-
   function removeItem(i: number) {
     setItems(items.filter((_, idx) => idx !== i))
   }
-
   function updateItem(i: number, field: keyof Item, value: any) {
     setItems(items.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)))
   }
-
-  // FileReader is a browser API that reads a file and converts it to base64.
-  // We store both the base64 (for saving to DB) and a preview URL (for display).
-  // In this case they're the same thing since readAsDataURL returns a data: URI.
   function handlePhoto(i: number, file: File) {
     const reader = new FileReader()
     reader.onload = (e) => {
       const base64 = e.target?.result as string
-      // Update both fields in one single state update to avoid overwriting
-      setItems(prev => prev.map((item, idx) =>
-        idx === i ? { ...item, photo_base64: base64, preview: base64 } : item
-      ))
+      setItems((prev) =>
+        prev.map((item, idx) =>
+          idx === i ? { ...item, photo_base64: base64, preview: base64 } : item
+        )
+      )
     }
     reader.readAsDataURL(file)
   }
 
-  // --- Payment helpers ---
+  // --- Initial payment helpers (CREATE mode) ---
   function addPayment() {
-    setInitialPayments([...initialPayments, { amount: 0, date: today(), note: '' }])
+    setInitialPayments([...initialPayments, { amount: 0, date: today(), origine: '', note: '' }])
   }
-
   function updatePayment(i: number, field: keyof Payment, value: any) {
     setInitialPayments(initialPayments.map((p, idx) => (idx === i ? { ...p, [field]: value } : p)))
   }
-
   function removePayment(i: number) {
     setInitialPayments(initialPayments.filter((_, idx) => idx !== i))
   }
 
-  // The total is always derived from the current items state.
-  // We never store it separately — we just compute it fresh on every render.
+  // --- New payment helpers (EDIT mode) ---
+  function addNewPayment() {
+    setNewPayments([...newPayments, { amount: 0, date: today(), origine: '', note: '' }])
+  }
+  function updateNewPayment(i: number, field: keyof Payment, value: any) {
+    setNewPayments(newPayments.map((p, idx) => (idx === i ? { ...p, [field]: value } : p)))
+  }
+  function removeNewPayment(i: number) {
+    setNewPayments(newPayments.filter((_, idx) => idx !== i))
+  }
+
+  // Save each new payment via the payments API. The endpoint handles status recalc.
+  async function saveNewPayments(invoiceId: string) {
+    const validPayments = newPayments.filter((p) => p.amount > 0)
+    for (const p of validPayments) {
+      await fetch(`/api/invoices/${invoiceId}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(p),
+      })
+    }
+  }
+
   const total = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
   const totalInitiallyPaid = initialPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+  const totalAlreadyPaid = existingPayments.reduce((s, p) => s + Number(p.amount), 0)
+  const totalNewPayments = newPayments.reduce((s, p) => s + Number(p.amount), 0)
+  const remainingAfterEdit = total - totalAlreadyPaid - totalNewPayments
 
   // --- Save handler ---
   async function handleSave() {
     if (!clientName) { setError('Veuillez entrer un nom de client'); return }
     if (items.some((i) => i.unit_price === 0)) { setError('Veuillez entrer un prix pour chaque article'); return }
-    if (totalInitiallyPaid > total) { setError('Le total des paiements dépasse le montant de la facture'); return }
+    if (!isEditMode && totalInitiallyPaid > total) {
+      setError('Le total des paiements dépasse le montant de la facture'); return
+    }
+    if (isEditMode && totalAlreadyPaid + totalNewPayments > total) {
+      setError(`Le total payé (${(totalAlreadyPaid + totalNewPayments).toLocaleString('fr-MA')} DH) dépasse le total facture`); return
+    }
 
     setSaving(true)
     setError('')
 
-    const res = await fetch('/api/invoices', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        clientName,
-        clientId,
-        // We only send phone/city if this is a new client being created.
-        // For existing clients, that data is already in the DB.
-        clientPhone: isNewClient ? clientPhone : undefined,
-        clientCity: isNewClient ? clientCity : undefined,
-        date,
-        validity,
-        items,
-        // Send the initial payments array — the API handles it in Step 6.
-        // If empty, the API skips that step entirely.
-        initialPayments: initialPayments.filter((p) => p.amount > 0),
-      }),
-    })
+    const validity = date
 
-    if (res.ok) {
-      const invoice = await res.json()
-      // Navigate to the invoice detail page on success
-      router.push(`/dashboard/invoices/${invoice.id}`)
+    if (isEditMode) {
+      const res = await fetch(`/api/invoices/${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, validity, items }),
+      })
+      if (res.ok) {
+        await saveNewPayments(editId)
+        router.push(`/dashboard/invoices/${editId}`)
+      } else {
+        const data = await res.json()
+        setError(data.error || 'Erreur lors de la modification')
+        setSaving(false)
+      }
     } else {
-      const data = await res.json()
-      setError(data.error || 'Erreur lors de la création')
-      setSaving(false)
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientName,
+          clientId,
+          clientPhone: isNewClient ? clientPhone : undefined,
+          clientCity: isNewClient ? clientCity : undefined,
+          date,
+          validity,
+          items,
+          initialPayments: initialPayments.filter((p) => p.amount > 0),
+        }),
+      })
+      if (res.ok) {
+        const invoice = await res.json()
+        router.push(`/dashboard/invoices/${invoice.id}`)
+      } else {
+        const data = await res.json()
+        setError(data.error || 'Erreur lors de la création')
+        setSaving(false)
+      }
     }
+  }
+
+  if (loadingInvoice) {
+    return (
+      <div className="flex items-center justify-center h-64" style={{ color: '#BF984D' }}>
+        Chargement de la facture...
+      </div>
+    )
   }
 
   return (
     <div className="max-w-3xl mx-auto">
+
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
-        <button onClick={() => router.back()} style={{ color: '#BF984D' }}>
-          ← Retour
-        </button>
-        <h1
-          className="text-2xl font-bold"
-          style={{ color: '#702434', fontFamily: 'Playfair Display, serif' }}
-        >
-          Nouvelle facture
+        <button onClick={() => router.back()} style={{ color: '#BF984D' }}>← Retour</button>
+        <h1 className="text-2xl font-bold" style={{ color: '#702434', fontFamily: 'Playfair Display, serif' }}>
+          {isEditMode ? 'Modifier la facture' : 'Nouvelle facture'}
         </h1>
       </div>
 
-      <div
-        className="bg-white rounded-2xl border p-8 space-y-8"
-        style={{ borderColor: '#BF984D22' }}
-      >
-        {/* ── Section 1: Client ── */}
+      <div className="bg-white rounded-2xl border p-8 space-y-8" style={{ borderColor: '#BF984D22' }}>
+
+        {/* ── Client ── */}
         <div>
-          <h2 className="font-semibold mb-4" style={{ color: '#702434' }}>
-            Client
-          </h2>
+          <h2 className="font-semibold mb-4" style={{ color: '#702434' }}>Client</h2>
           <div className="relative">
             <input
               type="text"
               placeholder="Nom du client..."
               value={clientName}
-              onChange={(e) => handleClientType(e.target.value)}
-              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              onChange={(e) => !isEditMode && !clientId && handleClientType(e.target.value)}
+              onFocus={() => !isEditMode && !clientId && suggestions.length > 0 && setShowSuggestions(true)}
+              readOnly={isEditMode || !!clientId}
               className="w-full px-4 py-3 rounded-xl border outline-none"
-              style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
+              style={{
+                borderColor: '#BF984D55',
+                backgroundColor: (isEditMode || clientId) ? '#F0E8E0' : '#FAF3EE',
+                cursor: (isEditMode || clientId) ? 'default' : 'text',
+              }}
             />
-
-            {/* Autocomplete dropdown — only visible when there are suggestions */}
-            {showSuggestions && suggestions.length > 0 && (
+            {/* Lock indicator when client is pre-selected from client page */}
+            {!isEditMode && !!clientId && (
               <div
-                className="absolute top-full left-0 right-0 bg-white border rounded-xl shadow-lg z-10 mt-1 overflow-hidden"
-                style={{ borderColor: '#BF984D33' }}
+                className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium"
+                style={{ backgroundColor: '#702434', color: 'white', display: 'inline-flex' }}
               >
+                <span>🔒</span>
+                <span>Client fixé — facture créée depuis la fiche client</span>
+              </div>
+            )}
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 bg-white border rounded-xl shadow-lg z-10 mt-1 overflow-hidden" style={{ borderColor: '#BF984D33' }}>
                 {suggestions.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => selectClient(c)}
                     className="w-full text-left px-4 py-3 hover:bg-orange-50 transition flex items-center gap-3"
                   >
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                      style={{ backgroundColor: '#702434' }}
-                    >
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ backgroundColor: '#702434' }}>
                       {c.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="font-medium text-sm" style={{ color: '#702434' }}>
-                        {c.name}
-                      </p>
-                      {c.city && (
-                        <p className="text-xs" style={{ color: '#999' }}>
-                          {c.city}
-                        </p>
-                      )}
+                      <p className="font-medium text-sm" style={{ color: '#702434' }}>{c.name}</p>
+                      {c.city && <p className="text-xs" style={{ color: '#999' }}>{c.city}</p>}
                     </div>
                   </button>
                 ))}
@@ -251,9 +334,8 @@ export default function NewInvoicePage() {
             )}
           </div>
 
-          {/* Extra fields for new clients — only shown when no match found */}
-          {isNewClient && clientName.length > 1 && suggestions.length === 0 && (
-            <div className="mt-3 grid grid-cols-2 gap-3">
+          {!isEditMode && isNewClient && clientName.length > 1 && suggestions.length === 0 && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 placeholder="Téléphone (optionnel)"
                 value={clientPhone}
@@ -272,278 +354,310 @@ export default function NewInvoicePage() {
           )}
         </div>
 
-        {/* ── Section 2: Dates ── */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>
-              Date
-            </label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border outline-none"
-              style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>
-              Validité
-            </label>
-            <input
-              type="date"
-              value={validity}
-              onChange={(e) => setValidity(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border outline-none"
-              style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
-            />
-          </div>
+        {/* ── Date ── */}
+        <div>
+          <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>Date de la facture</label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border outline-none"
+            style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
+          />
         </div>
 
-        {/* ── Section 3: Line items ── */}
+        {/* ── Articles ── */}
         <div>
-          <h2 className="font-semibold mb-4" style={{ color: '#702434' }}>
-            Articles
-          </h2>
+          <h2 className="font-semibold mb-4" style={{ color: '#702434' }}>Articles</h2>
           <div className="space-y-4">
             {items.map((item, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-4 p-4 rounded-xl border"
-                style={{ borderColor: '#BF984D22', backgroundColor: '#FAF3EE55' }}
-              >
-                {/* Photo upload — clicking the label triggers the hidden file input */}
-                <label className="cursor-pointer flex-shrink-0">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => e.target.files?.[0] && handlePhoto(i, e.target.files[0])}
-                  />
-                  {item.preview ? (
-                    <img
-                      src={item.preview}
-                      className="w-16 h-16 rounded-xl object-cover border"
-                      style={{ borderColor: '#BF984D55' }}
+              <div key={i} className="p-4 rounded-xl border" style={{ borderColor: '#BF984D22', backgroundColor: '#FAF3EE55' }}>
+                <div className="flex items-start gap-4">
+                  <label className="cursor-pointer flex-shrink-0">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => e.target.files?.[0] && handlePhoto(i, e.target.files[0])}
                     />
-                  ) : (
-                    <div
-                      className="w-16 h-16 rounded-xl border-2 border-dashed flex items-center justify-center text-2xl"
-                      style={{ borderColor: '#BF984D55' }}
-                    >
-                      📷
+                    {item.preview ? (
+                      <img src={item.preview} className="w-20 h-20 rounded-xl object-cover border" style={{ borderColor: '#BF984D55' }} />
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed flex items-center justify-center text-2xl" style={{ borderColor: '#BF984D55' }}>📷</div>
+                    )}
+                  </label>
+
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Note (ex: caftan brodé, taille M)"
+                      value={item.note}
+                      onChange={(e) => updateItem(i, 'note', e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                      style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
+                    />
+
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="w-20">
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Quantité</label>
+                        <input
+                          type="number" min="1" value={item.quantity}
+                          onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-[120px]">
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Prix unitaire (DH)</label>
+                        <input
+                          type="number" min="0" value={item.unit_price}
+                          onChange={(e) => updateItem(i, 'unit_price', Number(e.target.value))}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
+                        />
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs mb-1" style={{ color: '#999' }}>Total</p>
+                        <p className="font-semibold text-sm" style={{ color: '#702434' }}>
+                          {(item.quantity * item.unit_price).toLocaleString('fr-MA')} DH
+                        </p>
+                      </div>
+                      {items.length > 1 && (
+                        <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600">✕</button>
+                      )}
                     </div>
-                  )}
-                </label>
-
-                {/* Quantity */}
-                <div className="flex-shrink-0 w-24">
-                  <label className="block text-xs mb-1" style={{ color: '#999' }}>
-                    Quantité
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={item.quantity}
-                    onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                    style={{ borderColor: '#BF984D55' }}
-                  />
+                  </div>
                 </div>
-
-                {/* Unit price */}
-                <div className="flex-1">
-                  <label className="block text-xs mb-1" style={{ color: '#999' }}>
-                    Prix unitaire (DH)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={item.unit_price}
-                    onChange={(e) => updateItem(i, 'unit_price', Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                    style={{ borderColor: '#BF984D55' }}
-                  />
-                </div>
-
-                {/* Line total — derived, never stored */}
-                <div className="flex-shrink-0 text-right">
-                  <p className="text-xs mb-1" style={{ color: '#999' }}>
-                    Total
-                  </p>
-                  <p className="font-semibold text-sm" style={{ color: '#702434' }}>
-                    {(item.quantity * item.unit_price).toLocaleString('fr-MA')} DH
-                  </p>
-                </div>
-
-                {/* Remove button — hidden when there's only one item left */}
-                {items.length > 1 && (
-                  <button
-                    onClick={() => removeItem(i)}
-                    className="text-red-400 hover:text-red-600 flex-shrink-0"
-                  >
-                    ✕
-                  </button>
-                )}
               </div>
             ))}
           </div>
-          <button
-            onClick={addItem}
-            className="mt-3 text-sm font-medium"
-            style={{ color: '#BF984D' }}
-          >
+
+          <button onClick={addItem} className="mt-3 text-sm font-medium" style={{ color: '#BF984D' }}>
             + Ajouter un article
           </button>
         </div>
 
-        {/* ── Section 4: Invoice total ── */}
-        <div
-          className="flex justify-end border-t pt-6"
-          style={{ borderColor: '#BF984D22' }}
-        >
+        {/* ── Total ── */}
+        <div className="flex justify-end border-t pt-6" style={{ borderColor: '#BF984D22' }}>
           <div className="text-right">
-            <p className="text-sm" style={{ color: '#999' }}>
-              Total TTC
-            </p>
+            <p className="text-sm" style={{ color: '#999' }}>Total TTC</p>
             <p className="text-3xl font-bold" style={{ color: '#702434' }}>
               {total.toLocaleString('fr-MA')} DH
             </p>
           </div>
         </div>
 
-        {/* ── Section 5: Initial payments ── */}
-        {/* This section is hidden by default. The owner only sees it if a deposit
-            was already collected. Keeping it hidden avoids overwhelming the form
-            for the common case where no payment is taken upfront. */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold" style={{ color: '#702434' }}>
-              Paiements initiaux
-            </h2>
-            {!showPaymentSection && (
-              <button
-                onClick={() => {
-                  setShowPaymentSection(true)
-                  // Add the first row immediately so the owner doesn't have to click twice
-                  addPayment()
-                }}
-                className="text-sm font-medium"
-                style={{ color: '#BF984D' }}
-              >
-                + Ajouter un paiement
-              </button>
-            )}
-          </div>
-
-          {showPaymentSection && (
-            <div className="space-y-3">
-              {initialPayments.map((payment, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 p-4 rounded-xl border"
-                  style={{ borderColor: '#BF984D22', backgroundColor: '#FAF3EE55' }}
+        {/* ── Initial payments (CREATE mode only) ── */}
+        {!isEditMode && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold" style={{ color: '#702434' }}>Paiements initiaux</h2>
+              {!showPaymentSection && (
+                <button
+                  onClick={() => { setShowPaymentSection(true); addPayment() }}
+                  className="text-sm font-medium"
+                  style={{ color: '#BF984D' }}
                 >
-                  {/* Amount */}
-                  <div className="flex-1">
-                    <label className="block text-xs mb-1" style={{ color: '#999' }}>
-                      Montant (DH)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={payment.amount}
-                      onChange={(e) => updatePayment(i, 'amount', Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                      style={{ borderColor: '#BF984D55' }}
-                    />
-                  </div>
-
-                  {/* Date */}
-                  <div className="flex-1">
-                    <label className="block text-xs mb-1" style={{ color: '#999' }}>
-                      Date
-                    </label>
-                    <input
-                      type="date"
-                      value={payment.date}
-                      onChange={(e) => updatePayment(i, 'date', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                      style={{ borderColor: '#BF984D55' }}
-                    />
-                  </div>
-
-                  {/* Note */}
-                  <div className="flex-1">
-                    <label className="block text-xs mb-1" style={{ color: '#999' }}>
-                      Note
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Espèces, virement..."
-                      value={payment.note}
-                      onChange={(e) => updatePayment(i, 'note', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                      style={{ borderColor: '#BF984D55' }}
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => removePayment(i)}
-                    className="text-red-400 hover:text-red-600 flex-shrink-0 mt-4"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-
-              <button
-                onClick={addPayment}
-                className="text-sm font-medium"
-                style={{ color: '#BF984D' }}
-              >
-                + Autre paiement
-              </button>
-
-              {/* Running summary — lets the owner visually confirm the balance at a glance */}
-              {initialPayments.some((p) => p.amount > 0) && (
-                <div
-                  className="p-4 rounded-xl flex justify-between items-center"
-                  style={{ backgroundColor: '#FAF3EE' }}
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm" style={{ color: '#999' }}>
-                      Payé maintenant :{' '}
-                      <strong style={{ color: '#2d7a4f' }}>
-                        {totalInitiallyPaid.toLocaleString('fr-MA')} DH
-                      </strong>
-                    </p>
-                    <p className="text-sm" style={{ color: '#999' }}>
-                      Reste à payer :{' '}
-                      <strong style={{ color: '#BF984D' }}>
-                        {Math.max(0, total - totalInitiallyPaid).toLocaleString('fr-MA')} DH
-                      </strong>
-                    </p>
-                  </div>
-                </div>
+                  + Ajouter un paiement
+                </button>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Error message */}
+            {showPaymentSection && (
+              <div className="space-y-3">
+                {initialPayments.map((payment, i) => (
+                  <div key={i} className="p-4 rounded-xl border" style={{ borderColor: '#BF984D22', backgroundColor: '#FAF3EE55' }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Montant (DH)</label>
+                        <input type="number" min="0" value={payment.amount}
+                          onChange={(e) => updatePayment(i, 'amount', Number(e.target.value))}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Date du paiement</label>
+                        <input type="date" value={payment.date}
+                          onChange={(e) => updatePayment(i, 'date', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Origine</label>
+                        <select value={payment.origine}
+                          onChange={(e) => updatePayment(i, 'origine', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}>
+                          <option value="">Sélectionner...</option>
+                          <option value="Espèces">Espèces</option>
+                          <option value="Chèque">Chèque</option>
+                          <option value="Virement">Virement</option>
+                          <option value="Carte bancaire">Carte bancaire</option>
+                          <option value="Autre">Autre</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Note (optionnel)</label>
+                        <input type="text" placeholder="Référence, détail..." value={payment.note}
+                          onChange={(e) => updatePayment(i, 'note', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
+                      </div>
+                    </div>
+                    <button onClick={() => removePayment(i)} className="mt-2 text-xs text-red-400 hover:text-red-600">
+                      ✕ Supprimer ce paiement
+                    </button>
+                  </div>
+                ))}
+                <button onClick={addPayment} className="text-sm font-medium" style={{ color: '#BF984D' }}>
+                  + Autre paiement
+                </button>
+                {initialPayments.some((p) => p.amount > 0) && (
+                  <div className="p-4 rounded-xl" style={{ backgroundColor: '#FAF3EE' }}>
+                    <p className="text-sm" style={{ color: '#999' }}>
+                      Payé maintenant : <strong style={{ color: '#2d7a4f' }}>{totalInitiallyPaid.toLocaleString('fr-MA')} DH</strong>
+                    </p>
+                    <p className="text-sm mt-1" style={{ color: '#999' }}>
+                      Reste à payer : <strong style={{ color: '#BF984D' }}>{Math.max(0, total - totalInitiallyPaid).toLocaleString('fr-MA')} DH</strong>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Payments (EDIT mode only) ── */}
+        {isEditMode && (
+          <div>
+            <h2 className="font-semibold mb-3" style={{ color: '#702434' }}>Paiements</h2>
+
+            {/* Existing payments — read-only */}
+            {existingPayments.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-medium mb-2" style={{ color: '#999' }}>Paiements enregistrés</p>
+                <div className="space-y-2">
+                  {existingPayments.map((p) => (
+                    <div key={p.id} className="flex flex-wrap items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: '#FAF3EE55' }}>
+                      <p className="text-sm" style={{ color: '#702434' }}>{new Date(p.date).toLocaleDateString('fr-MA')}</p>
+                      <p className="text-sm font-semibold" style={{ color: '#2d7a4f' }}>+{Number(p.amount).toLocaleString('fr-MA')} DH</p>
+                      <p className="text-sm" style={{ color: '#702434' }}>{p.origine || '—'}</p>
+                      <p className="text-sm flex-1" style={{ color: '#999' }}>{p.note || ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {existingPayments.length === 0 && (
+              <p className="text-sm mb-4" style={{ color: '#999' }}>Aucun paiement enregistré pour cette facture.</p>
+            )}
+
+            {/* Add new payment */}
+            {!showNewPaymentForm && (
+              <button
+                onClick={() => { setShowNewPaymentForm(true); addNewPayment() }}
+                className="text-sm font-medium"
+                style={{ color: '#BF984D' }}
+              >
+                + Ajouter un nouveau paiement
+              </button>
+            )}
+
+            {showNewPaymentForm && (
+              <div className="space-y-3">
+                {newPayments.map((payment, i) => (
+                  <div key={i} className="p-4 rounded-xl border" style={{ borderColor: '#BF984D22', backgroundColor: '#FAF3EE55' }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Montant (DH)</label>
+                        <input type="number" min="0" value={payment.amount}
+                          onChange={(e) => updateNewPayment(i, 'amount', Number(e.target.value))}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Date du paiement</label>
+                        <input type="date" value={payment.date}
+                          onChange={(e) => updateNewPayment(i, 'date', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Origine</label>
+                        <select value={payment.origine}
+                          onChange={(e) => updateNewPayment(i, 'origine', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}>
+                          <option value="">Sélectionner...</option>
+                          <option value="Espèces">Espèces</option>
+                          <option value="Chèque">Chèque</option>
+                          <option value="Virement">Virement</option>
+                          <option value="Carte bancaire">Carte bancaire</option>
+                          <option value="Autre">Autre</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Note (optionnel)</label>
+                        <input type="text" placeholder="Référence, détail..." value={payment.note}
+                          onChange={(e) => updateNewPayment(i, 'note', e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
+                      </div>
+                    </div>
+                    <button onClick={() => removeNewPayment(i)} className="mt-2 text-xs text-red-400 hover:text-red-600">
+                      ✕ Supprimer ce paiement
+                    </button>
+                  </div>
+                ))}
+                <button onClick={addNewPayment} className="text-sm font-medium" style={{ color: '#BF984D' }}>
+                  + Autre nouveau paiement
+                </button>
+              </div>
+            )}
+
+            {/* Balance summary in edit mode */}
+            {(existingPayments.length > 0 || newPayments.some((p) => p.amount > 0)) && (
+              <div className="mt-4 p-4 rounded-xl space-y-1" style={{ backgroundColor: '#FAF3EE' }}>
+                <p className="text-sm" style={{ color: '#999' }}>
+                  Déjà payé : <strong style={{ color: '#2d7a4f' }}>{totalAlreadyPaid.toLocaleString('fr-MA')} DH</strong>
+                </p>
+                {totalNewPayments > 0 && (
+                  <p className="text-sm" style={{ color: '#999' }}>
+                    Nouveau paiement : <strong style={{ color: '#2d7a4f' }}>+{totalNewPayments.toLocaleString('fr-MA')} DH</strong>
+                  </p>
+                )}
+                <p className="text-sm" style={{ color: '#999' }}>
+                  Reste à payer : <strong style={{ color: remainingAfterEdit > 0 ? '#BF984D' : '#2d7a4f' }}>
+                    {Math.max(0, remainingAfterEdit).toLocaleString('fr-MA')} DH
+                  </strong>
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        {/* Save button */}
         <button
           onClick={handleSave}
           disabled={saving}
           className="w-full py-4 rounded-xl text-white font-semibold text-sm transition"
           style={{ backgroundColor: saving ? '#BF984D' : '#702434' }}
         >
-          {saving ? 'Enregistrement...' : 'Enregistrer la facture'}
+          {saving
+            ? (isEditMode ? 'Enregistrement...' : 'Création...')
+            : (isEditMode ? 'Enregistrer les modifications' : 'Enregistrer la facture')}
         </button>
       </div>
     </div>
+  )
+}
+
+export default function InvoiceBuilderPage() {
+  return (
+    <Suspense fallback={<div style={{ color: '#BF984D', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '16rem' }}>Chargement...</div>}>
+      <InvoiceBuilderInner />
+    </Suspense>
   )
 }

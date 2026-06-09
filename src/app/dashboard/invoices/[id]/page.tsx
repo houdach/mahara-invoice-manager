@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { InvoicePDFTemplate } from '@/components/InvoicePDF'
 import { generateInvoicePDF } from '@/lib/generatePDF'
 
@@ -9,14 +10,14 @@ type Invoice = {
   id: string
   number: string
   date: string
-  validity: string
+  updated_at: string
   status: string
   total: number
   total_paid: number
   remaining: number
   clients: { id: string; name: string; phone?: string; city?: string }
-  invoice_items: { id: string; photo_base64: string | null; quantity: number; unit_price: number }[]
-  payments: { id: string; amount: number; date: string; note?: string }[]
+  invoice_items: { id: string; photo_base64: string | null; quantity: number; unit_price: number; note?: string }[]
+  payments: { id: string; amount: number; date: string; origine?: string; note?: string }[]
 }
 
 const statusColors: Record<string, string> = {
@@ -42,7 +43,12 @@ export default function InvoiceDetailPage() {
   async function fetchInvoice() {
     const res = await fetch(`/api/invoices/${id}`)
     const data = await res.json()
-    setInvoice(data)
+    // Ensure nested arrays always exist to avoid runtime map() errors
+    setInvoice({
+      ...data,
+      invoice_items: data.invoice_items ?? [],
+      payments: data.payments ?? [],
+    })
     setLoading(false)
   }
 
@@ -65,6 +71,10 @@ export default function InvoiceDetailPage() {
     <div className="text-center py-16" style={{ color: '#702434' }}>Facture introuvable</div>
   )
 
+  // Show "modifié le" only if the invoice was actually edited (updated_at differs from created_at logically)
+  // We compare against the date field which is the creation date the owner set
+  const wasEdited = invoice.updated_at && new Date(invoice.updated_at).getTime() > new Date(invoice.date).getTime() + 60_000
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
 
@@ -72,8 +82,8 @@ export default function InvoiceDetailPage() {
       <div className="flex items-center gap-4">
         <button onClick={() => router.back()} style={{ color: '#BF984D' }}>← Retour</button>
         <div className="flex-1">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold" style={{ color: '#702434', fontFamily: 'Playfair Display, serif' }}>
                 {invoice.number}
               </h1>
@@ -84,15 +94,25 @@ export default function InvoiceDetailPage() {
                 {invoice.status}
               </span>
             </div>
-            {/* PDF export button */}
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="px-4 py-2 rounded-xl text-sm font-semibold border transition"
-              style={{ borderColor: '#BF984D55', color: '#702434', backgroundColor: 'white' }}
-            >
-              {exporting ? 'Export...' : '⬇ PDF'}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Edit button */}
+              <Link
+                href={`/dashboard/invoices/new?edit=${invoice.id}`}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition"
+                style={{ backgroundColor: '#702434', color: 'white' }}
+              >
+                ✎ Modifier
+              </Link>
+              {/* PDF export */}
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="px-4 py-2 rounded-xl text-sm font-semibold border transition"
+                style={{ borderColor: '#BF984D55', color: '#702434', backgroundColor: 'white' }}
+              >
+                {exporting ? 'Export...' : '⬇ PDF'}
+              </button>
+            </div>
           </div>
           <p className="text-sm mt-1" style={{ color: '#999' }}>
             Client : <span style={{ color: '#702434', fontWeight: 600 }}>{invoice.clients?.name}</span>
@@ -101,18 +121,20 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
 
-      {/* Invoice info card */}
-      <div className="bg-white rounded-2xl border p-6 grid grid-cols-3 gap-4" style={{ borderColor: '#BF984D22' }}>
+      {/* Invoice info card — date + last modified */}
+      <div className="bg-white rounded-2xl border p-6 grid grid-cols-1 sm:grid-cols-3 gap-4" style={{ borderColor: '#BF984D22' }}>
         <div>
-          <p className="text-xs mb-1" style={{ color: '#999' }}>Date</p>
+          <p className="text-xs mb-1" style={{ color: '#999' }}>Date de la facture</p>
           <p className="font-medium text-sm" style={{ color: '#702434' }}>
             {new Date(invoice.date).toLocaleDateString('fr-MA')}
           </p>
         </div>
         <div>
-          <p className="text-xs mb-1" style={{ color: '#999' }}>Validité</p>
-          <p className="font-medium text-sm" style={{ color: '#702434' }}>
-            {new Date(invoice.validity).toLocaleDateString('fr-MA')}
+          <p className="text-xs mb-1" style={{ color: '#999' }}>Dernière modification</p>
+          <p className="font-medium text-sm" style={{ color: wasEdited ? '#702434' : '#999' }}>
+            {wasEdited
+              ? new Date(invoice.updated_at).toLocaleDateString('fr-MA') + ' à ' + new Date(invoice.updated_at).toLocaleTimeString('fr-MA', { hour: '2-digit', minute: '2-digit' })
+              : 'Jamais modifiée'}
           </p>
         </div>
         <div>
@@ -123,33 +145,35 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
 
-      {/* Line items */}
+      {/* Line items with note */}
       <div className="bg-white rounded-2xl border p-6" style={{ borderColor: '#BF984D22' }}>
         <h2 className="font-semibold mb-4" style={{ color: '#702434' }}>Articles</h2>
         <div className="space-y-3">
-          {invoice.invoice_items.map((item) => (
-            <div key={item.id} className="flex items-center gap-4 p-3 rounded-xl"
-              style={{ backgroundColor: '#FAF3EE55' }}>
+          {(invoice.invoice_items ?? []).map((item) => (
+            <div key={item.id} className="flex items-center gap-4 p-3 rounded-xl" style={{ backgroundColor: '#FAF3EE55' }}>
               {item.photo_base64 ? (
                 <img
                   src={item.photo_base64}
-                  className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
                   style={{ border: '1px solid #BF984D33' }}
                 />
               ) : (
                 <div
-                  className="w-14 h-14 rounded-lg flex items-center justify-center flex-shrink-0 text-2xl"
+                  className="w-16 h-16 rounded-lg flex items-center justify-center flex-shrink-0 text-2xl"
                   style={{ backgroundColor: '#FAF3EE', border: '1px solid #BF984D33' }}
                 >
                   📷
                 </div>
               )}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
+                {item.note && (
+                  <p className="text-sm font-medium mb-0.5" style={{ color: '#702434' }}>{item.note}</p>
+                )}
                 <p className="text-sm" style={{ color: '#999' }}>
                   {item.quantity} × {Number(item.unit_price).toLocaleString('fr-MA')} DH
                 </p>
               </div>
-              <p className="font-semibold text-sm" style={{ color: '#702434' }}>
+              <p className="font-semibold text-sm flex-shrink-0" style={{ color: '#702434' }}>
                 {(item.quantity * item.unit_price).toLocaleString('fr-MA')} DH
               </p>
             </div>
@@ -172,19 +196,14 @@ export default function InvoiceDetailPage() {
           )}
         </div>
 
-        {/* Balance summary */}
-        <div className="grid grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ backgroundColor: '#FAF3EE' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ backgroundColor: '#FAF3EE' }}>
           <div>
             <p className="text-xs mb-1" style={{ color: '#999' }}>Total facture</p>
-            <p className="font-bold" style={{ color: '#702434' }}>
-              {Number(invoice.total).toLocaleString('fr-MA')} DH
-            </p>
+            <p className="font-bold" style={{ color: '#702434' }}>{Number(invoice.total).toLocaleString('fr-MA')} DH</p>
           </div>
           <div>
             <p className="text-xs mb-1" style={{ color: '#999' }}>Total payé</p>
-            <p className="font-bold" style={{ color: '#2d7a4f' }}>
-              {invoice.total_paid.toLocaleString('fr-MA')} DH
-            </p>
+            <p className="font-bold" style={{ color: '#2d7a4f' }}>{invoice.total_paid.toLocaleString('fr-MA')} DH</p>
           </div>
           <div>
             <p className="text-xs mb-1" style={{ color: '#999' }}>Reste à payer</p>
@@ -194,20 +213,20 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* Payments table */}
-        {invoice.payments.length === 0 ? (
+        {/* Payments table with origine */}
+        {(invoice.payments ?? []).length === 0 ? (
           <div className="text-center py-8" style={{ color: '#999' }}>
             <p className="text-2xl mb-2">💳</p>
             <p className="text-sm">Aucun paiement enregistré</p>
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-4 px-3 pb-2 border-b" style={{ borderColor: '#BF984D22' }}>
-              {['Date', 'Montant', 'Note', ''].map((h) => (
+            <div className="hidden sm:grid grid-cols-5 px-3 pb-2 border-b" style={{ borderColor: '#BF984D22' }}>
+              {['Date', 'Montant', 'Origine', 'Note', 'Cumulé'].map((h) => (
                 <p key={h} className="text-xs font-medium" style={{ color: '#999' }}>{h}</p>
               ))}
             </div>
-            {invoice.payments
+            {(invoice.payments ?? [])
               .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
               .map((payment, index) => {
                 const runningTotal = invoice.payments
@@ -215,15 +234,16 @@ export default function InvoiceDetailPage() {
                   .slice(0, index + 1)
                   .reduce((sum, p) => sum + Number(p.amount), 0)
                 return (
-                  <div key={payment.id} className="grid grid-cols-4 items-center px-3 py-3 rounded-xl hover:bg-orange-50 transition">
+                  <div key={payment.id} className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-3 py-3 rounded-xl hover:bg-orange-50 transition">
                     <p className="text-sm" style={{ color: '#702434' }}>
                       {new Date(payment.date).toLocaleDateString('fr-MA')}
                     </p>
                     <p className="text-sm font-semibold" style={{ color: '#2d7a4f' }}>
                       +{Number(payment.amount).toLocaleString('fr-MA')} DH
                     </p>
+                    <p className="text-sm" style={{ color: '#702434' }}>{payment.origine || '—'}</p>
                     <p className="text-sm" style={{ color: '#999' }}>{payment.note || '—'}</p>
-                    <p className="text-xs text-right" style={{ color: '#BF984D' }}>
+                    <p className="text-xs sm:text-right" style={{ color: '#BF984D' }}>
                       Cumulé: {runningTotal.toLocaleString('fr-MA')} DH
                     </p>
                   </div>
@@ -236,7 +256,6 @@ export default function InvoiceDetailPage() {
       {/* Add payment modal */}
       {showPaymentForm && (
         <AddPaymentModal
-          invoiceTotal={Number(invoice.total)}
           remaining={invoice.remaining}
           invoiceId={invoice.id}
           onClose={() => setShowPaymentForm(false)}
@@ -247,7 +266,7 @@ export default function InvoiceDetailPage() {
         />
       )}
 
-      {/* Hidden PDF template — off-screen, used only for export */}
+      {/* Hidden PDF template */}
       <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
         <InvoicePDFTemplate invoice={invoice} />
       </div>
@@ -256,13 +275,11 @@ export default function InvoiceDetailPage() {
 }
 
 function AddPaymentModal({
-  invoiceTotal,
   remaining,
   invoiceId,
   onClose,
   onAdded,
 }: {
-  invoiceTotal: number
   remaining: number
   invoiceId: string
   onClose: () => void
@@ -270,6 +287,7 @@ function AddPaymentModal({
 }) {
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [origine, setOrigine] = useState('')
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -284,7 +302,7 @@ function AddPaymentModal({
     const res = await fetch(`/api/invoices/${invoiceId}/payments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: Number(amount), date, note }),
+      body: JSON.stringify({ amount: Number(amount), date, origine, note }),
     })
     if (res.ok) {
       onAdded()
@@ -296,8 +314,8 @@ function AddPaymentModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: '#00000055' }}>
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md mx-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: '#00000055' }}>
+      <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 w-full max-w-md">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold" style={{ color: '#702434', fontFamily: 'Playfair Display, serif' }}>
             Ajouter un paiement
@@ -320,7 +338,7 @@ function AddPaymentModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>Date *</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>Date du paiement *</label>
             <input
               type="date" value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -329,9 +347,25 @@ function AddPaymentModal({
             />
           </div>
           <div>
+            <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>Origine *</label>
+            <select
+              value={origine}
+              onChange={(e) => setOrigine(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border outline-none"
+              style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
+            >
+              <option value="">Sélectionner...</option>
+              <option value="Espèces">Espèces</option>
+              <option value="Chèque">Chèque</option>
+              <option value="Virement">Virement</option>
+              <option value="Carte bancaire">Carte bancaire</option>
+              <option value="Autre">Autre</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-sm font-medium mb-1" style={{ color: '#702434' }}>Note (optionnel)</label>
             <input
-              type="text" placeholder="Ex: Virement, espèces..." value={note}
+              type="text" placeholder="Référence, détail..." value={note}
               onChange={(e) => setNote(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border outline-none"
               style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
