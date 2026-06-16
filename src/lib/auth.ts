@@ -21,7 +21,7 @@ export const authOptions: NextAuthOptions = {
         ) {
           return {
             id: 'admin',
-            name: credentials.username, // actual username, not hardcoded label
+            name: credentials!.username,
             email: 'admin@maharastyle.ma',
             role: 'admin',
           }
@@ -33,7 +33,7 @@ export const authOptions: NextAuthOptions = {
         ) {
           return {
             id: 'worker',
-            name: credentials.username, // actual username, not hardcoded label
+            name: credentials!.username,
             email: 'worker@maharastyle.ma',
             role: 'worker',
           }
