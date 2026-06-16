@@ -45,7 +45,6 @@ export default function InvoiceDetailPage() {
   const role = (session?.user as any)?.role
   const userName = session?.user?.name
 
-  // Admin can edit any invoice. Worker can only edit invoices they created.
   const canEdit = role === 'admin' || (role === 'worker' && invoice?.created_by === userName)
 
   async function fetchInvoice() {
@@ -58,9 +57,49 @@ export default function InvoiceDetailPage() {
   useEffect(() => { fetchInvoice() }, [id])
 
   // ── PRINT ──
-  // Browser native print. @page CSS removes the browser header/footer/URL.
+  // Desktop: CSS visibility trick — hides everything except the invoice template.
+  // Mobile: opens a new window with the invoice HTML at fixed 794px width so
+  //         it renders correctly and isn't squashed to the mobile viewport width.
   function handlePrint() {
-    window.print()
+    const element = document.getElementById('invoice-pdf-template')
+    if (!element) return
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+    if (isMobile) {
+      const printWindow = window.open('', '_blank')
+      if (!printWindow) return
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=794">
+            <title>Facture ${invoice!.number}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              @page { margin: 0; size: A4 portrait; }
+              html, body { width: 794px; margin: 0; padding: 0; background: white; }
+              #invoice-pdf-template { width: 794px !important; }
+            </style>
+          </head>
+          <body>
+            ${element.outerHTML}
+          </body>
+        </html>
+      `)
+      printWindow.document.close()
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.focus()
+          printWindow.print()
+          printWindow.close()
+        }, 800)
+      }
+    } else {
+      window.print()
+    }
   }
 
   // ── WHATSAPP SHARE ──
@@ -77,7 +116,6 @@ export default function InvoiceDetailPage() {
       const element = document.getElementById('invoice-pdf-template')
       if (!element) { setSharing(false); return }
 
-      // Wait for all images to fully load before screenshotting
       const images = element.querySelectorAll('img')
       await Promise.all(Array.from(images).map((img) =>
         new Promise<void>((resolve) => {
@@ -107,8 +145,6 @@ export default function InvoiceDetailPage() {
       const fileName = `Facture_${invoice.number}.pdf`
       const file = new File([pdfBlob], fileName, { type: 'application/pdf' })
 
-      // Only use Web Share API on mobile — on desktop (Mac) it opens the system
-      // share menu instead of WhatsApp, so we force the desktop fallback there.
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
       if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -117,7 +153,6 @@ export default function InvoiceDetailPage() {
           title: `Facture ${invoice.number} — Mahara Style`,
         })
       } else {
-        // Desktop fallback: download + WhatsApp Web
         const url = URL.createObjectURL(pdfBlob)
         const a = document.createElement('a')
         a.href = url
@@ -125,7 +160,6 @@ export default function InvoiceDetailPage() {
         a.click()
         URL.revokeObjectURL(url)
 
-        // Format phone: Moroccan numbers starting with 0 → 212XXXXXXXXX
         const rawPhone = invoice.clients?.phone || ''
         const phone = rawPhone.replace(/\s/g, '').replace(/^0/, '212').replace(/^\+/, '')
 
@@ -145,7 +179,6 @@ export default function InvoiceDetailPage() {
         window.open(waUrl, '_blank')
       }
     } catch (err: any) {
-      // User cancelled share — not an error
       if (err?.name !== 'AbortError') {
         console.error('WhatsApp share error:', err)
       }
@@ -169,16 +202,9 @@ export default function InvoiceDetailPage() {
 
   return (
     <>
-      {/* ── PRINT STYLES ──
-          @page removes browser-added headers, footers, and URL.
-          @media print hides everything except the invoice template.
-          The template renders full-width at the top of the page.
-      */}
+      {/* Desktop print styles — mobile uses new window approach instead */}
       <style>{`
-        @page {
-          margin: 0 !important;
-          size: A4 portrait;
-        }
+        @page { margin: 0 !important; size: A4 portrait; }
         @media print {
           body * { visibility: hidden !important; }
           #invoice-pdf-template,
@@ -195,7 +221,7 @@ export default function InvoiceDetailPage() {
 
       <div className="max-w-3xl mx-auto space-y-6">
 
-        {/* ── HEADER ── */}
+        {/* Header */}
         <div className="flex items-start gap-4">
           <button onClick={() => router.back()} style={{ color: '#BF984D' }} className="mt-1 flex-shrink-0">
             ← Retour
@@ -210,7 +236,6 @@ export default function InvoiceDetailPage() {
                   style={{ color: statusColors[invoice.status], backgroundColor: statusBg[invoice.status] }}>
                   {invoice.status}
                 </span>
-                {/* Created by badge — internal only, not in print or WhatsApp */}
                 {invoice.created_by && (
                   <span className="px-3 py-1 rounded-full text-xs" style={{ backgroundColor: '#f5f5f5', color: '#666' }}>
                     Par {invoice.created_by}
@@ -218,7 +243,6 @@ export default function InvoiceDetailPage() {
                 )}
               </div>
 
-              {/* Action buttons */}
               <div className="flex items-center gap-2 flex-wrap">
                 {canEdit && (
                   <Link
@@ -254,7 +278,7 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* ── INFO CARD ── */}
+        {/* Info card */}
         <div className="bg-white rounded-2xl border p-6 grid grid-cols-1 sm:grid-cols-3 gap-4" style={{ borderColor: '#BF984D22' }}>
           <div>
             <p className="text-xs mb-1" style={{ color: '#999' }}>Date de la facture</p>
@@ -279,7 +303,7 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* ── ARTICLES ── */}
+        {/* Articles */}
         <div className="bg-white rounded-2xl border p-6" style={{ borderColor: '#BF984D22' }}>
           <h2 className="font-semibold mb-4" style={{ color: '#702434' }}>Articles</h2>
           <div className="space-y-3">
@@ -287,7 +311,7 @@ export default function InvoiceDetailPage() {
               <div key={item.id} className="flex items-center gap-4 p-3 rounded-xl" style={{ backgroundColor: '#FAF3EE55' }}>
                 {item.photo_base64 ? (
                   <img src={item.photo_base64} className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                    style={{ border: '1px solid #BF984D33' }} />
+                    style={{ border: '1px solid #BF984D33' }} alt="" />
                 ) : (
                   <div className="w-16 h-16 rounded-lg flex items-center justify-center flex-shrink-0 text-2xl"
                     style={{ backgroundColor: '#FAF3EE', border: '1px solid #BF984D33' }}>📷</div>
@@ -308,7 +332,7 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* ── PAYMENTS ── */}
+        {/* Payments */}
         <div className="bg-white rounded-2xl border p-6" style={{ borderColor: '#BF984D22' }}>
           <div className="flex items-center justify-between mb-6">
             <h2 className="font-semibold" style={{ color: '#702434' }}>Paiements</h2>
@@ -321,7 +345,6 @@ export default function InvoiceDetailPage() {
             )}
           </div>
 
-          {/* Balance summary */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ backgroundColor: '#FAF3EE' }}>
             <div>
               <p className="text-xs mb-1" style={{ color: '#999' }}>Total facture</p>
@@ -377,7 +400,6 @@ export default function InvoiceDetailPage() {
           )}
         </div>
 
-        {/* Add payment modal */}
         {showPaymentForm && (
           <AddPaymentModal
             remaining={invoice.remaining}
@@ -387,7 +409,7 @@ export default function InvoiceDetailPage() {
           />
         )}
 
-        {/* Hidden invoice template — used for print and WhatsApp PDF generation */}
+        {/* Hidden invoice template — used for print (mobile) and WhatsApp PDF */}
         <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
           <InvoicePDFTemplate invoice={invoice} />
         </div>
