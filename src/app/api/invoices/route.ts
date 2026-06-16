@@ -7,6 +7,8 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
+  // All users see all invoices.
+  // Role only affects edit permissions (handled in the UI and detail page).
   const { data, error } = await supabaseAdmin
     .from('invoices')
     .select(`
@@ -18,7 +20,6 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Calculate remaining balance per invoice
   const invoices = data.map((inv: any) => {
     const totalPaid = inv.payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0
     return {
@@ -35,10 +36,10 @@ export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
-  const body = await req.json()
+  // Save actual username as created_by
+  const createdBy = session.user?.name || 'Inconnu'
 
-  // ✅ initialPayments is now destructured from the request body
-  // Previously it was missing here, which is why Step 6 threw a ReferenceError
+  const body = await req.json()
   const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments } = body
 
   if (!clientName || !items?.length) {
@@ -49,33 +50,39 @@ export async function POST(req: NextRequest) {
   let finalClientId = clientId
 
   if (!finalClientId) {
-    const { data: newClient, error: clientError } = await supabaseAdmin
+    const { data: existing } = await supabaseAdmin
       .from('clients')
-      .insert({ name: clientName, phone: clientPhone || null, city: clientCity || null })
-      .select()
+      .select('id')
+      .ilike('name', clientName.trim())
       .single()
 
-    if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
-    finalClientId = newClient.id
+    if (existing) {
+      finalClientId = existing.id
+    } else {
+      const { data: newClient, error: clientError } = await supabaseAdmin
+        .from('clients')
+        .insert({ name: clientName.trim(), phone: clientPhone || null, city: clientCity || null })
+        .select()
+        .single()
+
+      if (clientError) return NextResponse.json({ error: clientError.message }, { status: 500 })
+      finalClientId = newClient.id
+    }
   }
 
-  // Step 2 — generate invoice number
   // Step 2 — generate invoice number per client
-// Format: PF-{clientShortId}-{year}-{count}
-// clientShortId = first 6 chars of the client UUID, enough to differentiate
-const clientShortId = finalClientId.slice(0, 6).toUpperCase()
+  const clientShortId = finalClientId.slice(0, 6).toUpperCase()
+  const { count } = await supabaseAdmin
+    .from('invoices')
+    .select('*', { count: 'exact', head: true })
+    .eq('client_id', finalClientId)
 
-const { count } = await supabaseAdmin
-  .from('invoices')
-  .select('*', { count: 'exact', head: true })
-  .eq('client_id', finalClientId)
+  const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`
 
-const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`// Step 3 — calculate total from line items
-  const total = items.reduce((sum: number, item: any) => {
-    return sum + item.quantity * item.unit_price
-  }, 0)
+  // Step 3 — calculate total
+  const total = items.reduce((sum: number, item: any) => sum + item.quantity * item.unit_price, 0)
 
-  // Step 4 — create the invoice record
+  // Step 4 — create invoice with created_by
   const { data: invoice, error: invoiceError } = await supabaseAdmin
     .from('invoices')
     .insert({
@@ -85,13 +92,14 @@ const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String(
       validity,
       total,
       status: 'En attente',
+      created_by: createdBy,
     })
     .select()
     .single()
 
   if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 500 })
 
-  // Step 5 — save line items (photos stored as base64)
+  // Step 5 — save line items
   const itemsToInsert = items.map((item: any) => ({
     invoice_id: invoice.id,
     photo_base64: item.photo_base64 || null,
@@ -106,32 +114,32 @@ const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String(
 
   if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 })
 
-  // Step 6 — save initial payments if the owner recorded any upfront
-  // initialPayments is optional — most invoices will have none at creation time
+  // Step 6 — save initial payments
   if (initialPayments && initialPayments.length > 0) {
-    const paymentsToInsert = initialPayments.map((p: any) => ({
-      invoice_id: invoice.id,
-      amount: Number(p.amount),
-      date: p.date,
-      note: p.note || null,
-      origine: p.origine || null,
-    }))
+    const validPayments = initialPayments.filter((p: any) => p.amount > 0)
+    if (validPayments.length > 0) {
+      const paymentsToInsert = validPayments.map((p: any) => ({
+        invoice_id: invoice.id,
+        amount: Number(p.amount),
+        date: p.date,
+        note: p.note || null,
+        origine: p.origine || null,
+      }))
 
-    const { error: paymentsError } = await supabaseAdmin
-      .from('payments')
-      .insert(paymentsToInsert)
+      const { error: paymentsError } = await supabaseAdmin
+        .from('payments')
+        .insert(paymentsToInsert)
 
-    if (paymentsError) return NextResponse.json({ error: paymentsError.message }, { status: 500 })
+      if (paymentsError) return NextResponse.json({ error: paymentsError.message }, { status: 500 })
 
-    // Recalculate status now that we know how much was paid upfront
-    // Soldé = fully paid, Partiel = partially paid, En attente = nothing paid yet
-    const totalPaid = initialPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0)
-    const newStatus = totalPaid >= total ? 'Soldé' : totalPaid > 0 ? 'Partiel' : 'En attente'
+      const totalPaid = validPayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0)
+      const newStatus = totalPaid >= total ? 'Soldé' : totalPaid > 0 ? 'Partiel' : 'En attente'
 
-    await supabaseAdmin
-      .from('invoices')
-      .update({ status: newStatus })
-      .eq('id', invoice.id)
+      await supabaseAdmin
+        .from('invoices')
+        .update({ status: newStatus })
+        .eq('id', invoice.id)
+    }
   }
 
   return NextResponse.json(invoice, { status: 201 })

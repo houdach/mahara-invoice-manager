@@ -10,15 +10,35 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const validUsername = process.env.OWNER_USERNAME
-        const validPassword = process.env.OWNER_PASSWORD
+        const adminUsername = process.env.OWNER_USERNAME
+        const adminPassword = process.env.OWNER_PASSWORD
+        const workerUsername = process.env.WORKER_USERNAME
+        const workerPassword = process.env.WORKER_PASSWORD
 
         if (
-          credentials?.username === validUsername &&
-          credentials?.password === validPassword
+          credentials?.username === adminUsername &&
+          credentials?.password === adminPassword
         ) {
-          return { id: '1', name: 'Propriétaire', email: 'admin@maharastyle.ma' }
+          return {
+            id: 'admin',
+            name: credentials.username, // actual username, not hardcoded label
+            email: 'admin@maharastyle.ma',
+            role: 'admin',
+          }
         }
+
+        if (
+          credentials?.username === workerUsername &&
+          credentials?.password === workerPassword
+        ) {
+          return {
+            id: 'worker',
+            name: credentials.username, // actual username, not hardcoded label
+            email: 'worker@maharastyle.ma',
+            role: 'worker',
+          }
+        }
+
         return null
       },
     }),
@@ -28,7 +48,23 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 30 * 24 * 60 * 60,
+  },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = (user as any).role
+        token.name = user.name
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        (session.user as any).role = token.role
+        session.user.name = token.name as string
+      }
+      return session
+    },
   },
   secret: process.env.NEXTAUTH_SECRET,
 }
