@@ -52,7 +52,7 @@ export function InvoicePDFTemplate({ invoice }: Props) {
       id="invoice-pdf-template"
       style={{
         width: '794px',
-        minHeight: '1123px',
+        height: '1123px',
         backgroundImage: `url(${BACKGROUND_PATTERN})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
@@ -62,38 +62,50 @@ export function InvoicePDFTemplate({ invoice }: Props) {
         color: INK,
         padding: '40px',
         boxSizing: 'border-box',
-        position: 'relative',
       }}
     >
+      {/* White card — flex column so footer is pushed to bottom */}
       <div
         style={{
           backgroundColor: 'white',
           width: '100%',
-          minHeight: '1043px',
+          height: '1043px',
           position: 'relative',
-          display: 'flex',
-          flexDirection: 'column',
+          boxSizing: 'border-box',
         }}
       >
         {/* ── HEADER ── */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '28px 40px 20px', borderBottom: `3px solid ${BURGUNDY}`,
+          flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <img src={MAHARA_LOGO} style={{ width: '76px', height: '76px', objectFit: 'contain', flexShrink: 0 }} />
+            <img
+              src={MAHARA_LOGO}
+              alt="Mahara Style"
+              style={{ width: '76px', height: '76px', objectFit: 'contain', flexShrink: 0 }}
+            />
             <div>
-              <div style={{ fontSize: '21px', fontWeight: 'bold', color: BURGUNDY, letterSpacing: '0.5px' }}>MAHARA STYLE</div>
-              <div style={{ fontSize: '10px', color: GRAY_TEXT, marginTop: '3px' }}>COOPÉRATIVE AL MAHARA AL HIRAFIA</div>
-              <div style={{ fontSize: '10px', color: GRAY_TEXT, marginTop: '2px' }}>Marrakech, Maroc</div>
+              <div style={{ fontSize: '21px', fontWeight: 'bold', color: BURGUNDY, letterSpacing: '0.5px' }}>
+                MAHARA STYLE
+              </div>
+              <div style={{ fontSize: '10px', color: GRAY_TEXT, marginTop: '3px' }}>
+                COOPÉRATIVE AL MAHARA AL HIRAFIA
+              </div>
+              <div style={{ fontSize: '10px', color: GRAY_TEXT, marginTop: '2px' }}>
+                Marrakech, Maroc
+              </div>
             </div>
           </div>
-          <div style={{ fontSize: '34px', fontWeight: 'bold', color: BURGUNDY, letterSpacing: '1px' }}>FACTURE</div>
+          <div style={{ fontSize: '34px', fontWeight: 'bold', color: BURGUNDY, letterSpacing: '1px' }}>
+            FACTURE
+          </div>
         </div>
 
         {/* ── INFO SECTION ── */}
-        <div style={{ display: 'flex', gap: '24px', padding: '24px 40px' }}>
-          {/* Left: N°, Date, Lieu — no validity, no modified date */}
+        <div style={{ display: 'flex', gap: '24px', padding: '24px 40px', flexShrink: 0 }}>
+          {/* Left: N°, Date, Lieu */}
           <div style={{ flex: 1 }}>
             {[
               { label: 'N° :', value: invoice.number },
@@ -108,8 +120,13 @@ export function InvoicePDFTemplate({ invoice }: Props) {
           </div>
 
           {/* Right: CLIENT box */}
-          <div style={{ flex: 1, border: `1px solid ${BURGUNDY}`, borderRadius: '4px', overflow: 'hidden', alignSelf: 'flex-start' }}>
-            <div style={{ backgroundColor: BURGUNDY, color: 'white', padding: '6px 12px', fontWeight: 'bold', fontSize: '11px' }}>CLIENT</div>
+          <div style={{
+            flex: 1, border: `1px solid ${BURGUNDY}`, borderRadius: '4px',
+            overflow: 'hidden', alignSelf: 'flex-start',
+          }}>
+            <div style={{ backgroundColor: BURGUNDY, color: 'white', padding: '6px 12px', fontWeight: 'bold', fontSize: '11px' }}>
+              CLIENT
+            </div>
             <div style={{ padding: '10px 12px' }}>
               {[
                 { label: 'Nom / Raison sociale :', value: invoice.clients.name },
@@ -126,7 +143,7 @@ export function InvoicePDFTemplate({ invoice }: Props) {
         </div>
 
         {/* ── ITEMS TABLE ── */}
-        <div style={{ padding: '0 40px' }}>
+        <div style={{ padding: '0 40px', flexShrink: 0 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
             <thead>
               <tr style={{ backgroundColor: BURGUNDY, color: 'white' }}>
@@ -136,7 +153,10 @@ export function InvoicePDFTemplate({ invoice }: Props) {
                   { label: 'Prix U. TTC', align: 'right', width: '120px' },
                   { label: 'Total TTC', align: 'right', width: '120px' },
                 ].map((h) => (
-                  <th key={h.label} style={{ padding: '8px 12px', textAlign: h.align as any, fontWeight: 'bold', fontSize: '11px', width: h.width }}>
+                  <th key={h.label} style={{
+                    padding: '8px 12px', textAlign: h.align as any,
+                    fontWeight: 'bold', fontSize: '11px', width: h.width,
+                  }}>
                     {h.label}
                   </th>
                 ))}
@@ -144,14 +164,21 @@ export function InvoicePDFTemplate({ invoice }: Props) {
             </thead>
             <tbody>
               {invoice.invoice_items.map((item, i) => (
-                <tr key={item.id} style={{ borderBottom: `1px solid ${GRAY_LINE}`, backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                <tr key={item.id} style={{
+                  borderBottom: `1px solid ${GRAY_LINE}`,
+                  backgroundColor: i % 2 === 0 ? 'white' : '#fafafa',
+                }}>
                   <td style={{ padding: '12px', textAlign: 'center', verticalAlign: 'middle', color: BURGUNDY, fontWeight: 'bold', fontSize: '13px' }}>
                     {item.quantity}
                   </td>
                   <td style={{ padding: '12px', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       {item.photo_base64 ? (
-                        <img src={item.photo_base64} style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: `1px solid ${GRAY_LINE}`, flexShrink: 0 }} />
+                        <img
+                          src={item.photo_base64}
+                          alt=""
+                          style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: `1px solid ${GRAY_LINE}`, flexShrink: 0 }}
+                        />
                       ) : (
                         <div style={{ width: '70px', height: '70px', backgroundColor: GRAY_BG, borderRadius: '4px', border: `1px solid ${GRAY_LINE}`, flexShrink: 0 }} />
                       )}
@@ -191,27 +218,18 @@ export function InvoicePDFTemplate({ invoice }: Props) {
             </div>
           )}
 
-          {/* ── PAYMENTS DETAIL — date, montant, origine — visible to client ── */}
+          {/* ── PAYMENTS DETAIL — date, montant, origine ── */}
           {sortedPayments.length > 0 && (
             <div style={{ marginTop: '20px' }}>
-              <div style={{
-                fontSize: '11px', fontWeight: 'bold', color: BURGUNDY,
-                marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px',
-              }}>
+              <div style={{ fontSize: '11px', fontWeight: 'bold', color: BURGUNDY, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Détail des paiements
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
                 <thead>
                   <tr style={{ backgroundColor: GRAY_BG }}>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '34%' }}>
-                      Date
-                    </th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '33%' }}>
-                      Montant
-                    </th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '33%' }}>
-                      Origine
-                    </th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '34%' }}>Date</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '33%' }}>Montant</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '33%' }}>Origine</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -235,19 +253,25 @@ export function InvoicePDFTemplate({ invoice }: Props) {
         </div>
 
         {/* ── FOOTER ── */}
-        <div style={{ position: 'absolute', bottom: '0', left: '0', right: '0' }}>
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
           <div style={{ borderTop: `1px solid ${GRAY_LINE}`, padding: '14px 40px 8px' }}>
             <div style={{ fontWeight: 'bold', color: BURGUNDY, fontSize: '11px', textAlign: 'center' }}>
               COOPÉRATIVE AL MAHARA AL HIRAFIA
             </div>
           </div>
           <div style={{ backgroundColor: BURGUNDY, padding: '10px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {['+212 606 662 336 · myhassan.mara68@gmail.com', 'I.C.E : 003016647000073', 'IBAN : MA 145 450 21215 4999721 0006 10'].map((text) => (
+            {[
+              '+212 606 662 336 · myhassan.mara68@gmail.com',
+              'I.C.E : 003016647000073',
+              'IBAN : MA 145 450 21215 4999721 0006 10',
+            ].map((text) => (
               <span key={text} style={{ color: 'white', fontSize: '8.5px' }}>{text}</span>
             ))}
           </div>
           <div style={{ backgroundColor: '#5a1d2a', padding: '5px 40px', textAlign: 'center' }}>
-            <span style={{ color: 'white', fontSize: '8.5px', fontStyle: 'italic' }}>maharastyle.ma · Marrakech, Maroc</span>
+            <span style={{ color: 'white', fontSize: '8.5px', fontStyle: 'italic' }}>
+              maharastyle.ma · Marrakech, Maroc
+            </span>
           </div>
         </div>
       </div>

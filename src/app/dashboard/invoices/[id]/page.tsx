@@ -153,6 +153,9 @@ export default function InvoiceDetailPage() {
           title: `Facture ${invoice.number} — Mahara Style`,
         })
       } else {
+        // Open blank window NOW — Chrome expires user gesture after any await
+        const waWindow = window.open('', '_blank')
+
         const url = URL.createObjectURL(pdfBlob)
         const a = document.createElement('a')
         a.href = url
@@ -176,7 +179,11 @@ export default function InvoiceDetailPage() {
           ? `https://wa.me/${phone}?text=${message}`
           : `https://wa.me/?text=${message}`
 
-        window.open(waUrl, '_blank')
+        if (waWindow) {
+          waWindow.location.href = waUrl
+        } else {
+          window.open(waUrl, '_blank')
+        }
       }
     } catch (err: any) {
       if (err?.name !== 'AbortError') {

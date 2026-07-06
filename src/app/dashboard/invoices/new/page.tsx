@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // --- Types ---
@@ -18,7 +18,7 @@ function today() {
   return new Date().toISOString().split('T')[0]
 }
 
-function InvoiceBuilderInner() {
+export default function InvoiceBuilderPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -103,14 +103,6 @@ function InvoiceBuilderInner() {
       setClientName(decodeURIComponent(prefilledName))
       setClientId(prefilledId)
       setIsNewClient(false)
-      // Also fetch full client info to get phone + city
-      fetch(`/api/clients/${prefilledId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.phone) setClientPhone(data.phone)
-          if (data.city) setClientCity(data.city)
-        })
-        .catch(() => {})
     }
   }, [])
 
@@ -158,12 +150,27 @@ function InvoiceBuilderInner() {
   function handlePhoto(i: number, file: File) {
     const reader = new FileReader()
     reader.onload = (e) => {
-      const base64 = e.target?.result as string
-      setItems((prev) =>
-        prev.map((item, idx) =>
-          idx === i ? { ...item, photo_base64: base64, preview: base64 } : item
+      // Compress photo before storing as base64.
+      // Raw photos can be 1-2MB which causes Chrome to hang on large POST requests.
+      // We resize to max 800px and compress to 60% JPEG — still looks good in the
+      // invoice but reduces payload from ~1MB to ~80KB.
+      const img = new window.Image()
+      img.onload = () => {
+        const MAX = 800
+        const ratio = Math.min(MAX / img.width, MAX / img.height, 1)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * ratio)
+        canvas.height = Math.round(img.height * ratio)
+        const ctx = canvas.getContext('2d')!
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        const compressed = canvas.toDataURL('image/jpeg', 0.6)
+        setItems((prev) =>
+          prev.map((item, idx) =>
+            idx === i ? { ...item, photo_base64: compressed, preview: compressed } : item
+          )
         )
-      )
+      }
+      img.src = e.target?.result as string
     }
     reader.readAsDataURL(file)
   }
@@ -303,16 +310,6 @@ function InvoiceBuilderInner() {
                 cursor: (isEditMode || clientId) ? 'default' : 'text',
               }}
             />
-            {/* Lock indicator when client is pre-selected from client page */}
-            {!isEditMode && !!clientId && (
-              <div
-                className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium"
-                style={{ backgroundColor: '#702434', color: 'white', display: 'inline-flex' }}
-              >
-                <span>🔒</span>
-                <span>Client fixé — facture créée depuis la fiche client</span>
-              </div>
-            )}
             {showSuggestions && suggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 bg-white border rounded-xl shadow-lg z-10 mt-1 overflow-hidden" style={{ borderColor: '#BF984D33' }}>
                 {suggestions.map((c) => (
@@ -651,13 +648,5 @@ function InvoiceBuilderInner() {
         </button>
       </div>
     </div>
-  )
-}
-
-export default function InvoiceBuilderPage() {
-  return (
-    <Suspense fallback={<div style={{ color: '#BF984D', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '16rem' }}>Chargement...</div>}>
-      <InvoiceBuilderInner />
-    </Suspense>
   )
 }
