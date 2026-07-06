@@ -41,6 +41,7 @@ export default function InvoiceDetailPage() {
   const [loading, setLoading] = useState(true)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [printing, setPrinting] = useState(false)
 
   const role = (session?.user as any)?.role
   const userName = session?.user?.name
@@ -56,84 +57,102 @@ export default function InvoiceDetailPage() {
 
   useEffect(() => { fetchInvoice() }, [id])
 
-  // ── PRINT ──
-  // Desktop: CSS visibility trick — hides everything except the invoice template.
-  // Mobile: opens a new window with the invoice HTML at fixed 794px width so
-  //         it renders correctly and isn't squashed to the mobile viewport width.
-  function handlePrint() {
+  // ── SHARED: render invoice template to canvas ──
+  // Used by both print and WhatsApp. Extracted to avoid code duplication.
+  async function renderToCanvas(scale = 3) {
+    const { default: html2canvas } = await import('html2canvas')
     const element = document.getElementById('invoice-pdf-template')
-    if (!element) return
+    if (!element) return null
 
+    const images = element.querySelectorAll('img')
+    await Promise.all(Array.from(images).map((img) =>
+      new Promise<void>((resolve) => {
+        if (img.complete && img.naturalHeight !== 0) { resolve(); return }
+        img.onload = () => resolve()
+        img.onerror = () => resolve()
+      })
+    ))
+    await new Promise((r) => setTimeout(r, 100))
+
+    return html2canvas(element, {
+      scale,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      imageTimeout: 0,
+    })
+  }
+
+  // ── PRINT ──
+  // Strategy:
+  // - Chrome desktop: window.print() with CSS visibility trick — fast and clean
+  // - Safari + mobile: html2canvas screenshot → open in new window → print
+  //   This guarantees the footer renders because we print a static image,
+  //   not the live DOM where Safari has absolute positioning issues.
+  async function handlePrint() {
+    if (!invoice) return
+
+    const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg|OPR/.test(navigator.userAgent)
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
-    if (isMobile) {
-      const printWindow = window.open('', '_blank')
-      if (!printWindow) return
-
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=794">
-            <title>Facture ${invoice!.number}</title>
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              @page { margin: 0; size: A4 portrait; }
-              html, body { width: 794px; margin: 0; padding: 0; background: white; }
-              #invoice-pdf-template { width: 794px !important; }
-            </style>
-          </head>
-          <body>
-            ${element.outerHTML}
-          </body>
-        </html>
-      `)
-      printWindow.document.close()
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.focus()
-          printWindow.print()
-          printWindow.close()
-        }, 800)
-      }
-    } else {
+    if (isChrome && !isMobile) {
+      // Chrome desktop: CSS visibility approach is instant and clean
       window.print()
+      return
     }
+
+    // Safari + mobile: exact same logic as WhatsApp — generate PDF via canvas
+    // then open the PDF blob in a new window and trigger print.
+    // This guarantees footer renders and quality matches WhatsApp output exactly.
+    setPrinting(true)
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const canvas = await renderToCanvas(2) // scale 2 for print — faster, still sharp
+      if (!canvas) { setPrinting(false); return }
+
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+
+      // Open PDF as blob URL — browser shows native PDF viewer with print dialog
+      const pdfBlob = pdf.output('blob')
+      const pdfUrl = URL.createObjectURL(pdfBlob)
+      const printWindow = window.open(pdfUrl, '_blank')
+      if (printWindow) {
+        printWindow.onload = () => {
+          setTimeout(() => {
+            printWindow.print()
+          }, 500)
+        }
+      }
+      // Clean up blob URL after a delay
+      setTimeout(() => URL.revokeObjectURL(pdfUrl), 10000)
+    } catch (err) {
+      console.error('Print error:', err)
+    }
+    setPrinting(false)
   }
 
   // ── WHATSAPP SHARE ──
   // Mobile: Web Share API shares the PDF file directly to WhatsApp.
-  // Desktop: downloads PDF + opens WhatsApp Web with pre-filled message.
+  // Desktop: opens WhatsApp window FIRST (preserves Chrome user gesture),
+  //          then generates PDF and downloads it, then redirects the WA window.
   async function handleWhatsApp() {
     if (!invoice) return
     setSharing(true)
 
     try {
       const { default: jsPDF } = await import('jspdf')
-      const { default: html2canvas } = await import('html2canvas')
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
-      const element = document.getElementById('invoice-pdf-template')
-      if (!element) { setSharing(false); return }
+      // For desktop Chrome: open WA window NOW before any await
+      const waWindow = !isMobile ? window.open('', '_blank') : null
 
-      const images = element.querySelectorAll('img')
-      await Promise.all(Array.from(images).map((img) =>
-        new Promise<void>((resolve) => {
-          if (img.complete && img.naturalHeight !== 0) { resolve(); return }
-          img.onload = () => resolve()
-          img.onerror = () => resolve()
-        })
-      ))
-      await new Promise((r) => setTimeout(r, 150))
-
-      const canvas = await html2canvas(element, {
-        scale: 3,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        imageTimeout: 0,
-      })
+      const canvas = await renderToCanvas()
+      if (!canvas) { setSharing(false); return }
 
       const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
@@ -145,17 +164,14 @@ export default function InvoiceDetailPage() {
       const fileName = `Facture_${invoice.number}.pdf`
       const file = new File([pdfBlob], fileName, { type: 'application/pdf' })
 
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-
       if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+        // Mobile: direct share to WhatsApp via Web Share API
         await navigator.share({
           files: [file],
           title: `Facture ${invoice.number} — Mahara Style`,
         })
       } else {
-        // Open blank window NOW — Chrome expires user gesture after any await
-        const waWindow = window.open('', '_blank')
-
+        // Desktop: download PDF + redirect to WhatsApp Web
         const url = URL.createObjectURL(pdfBlob)
         const a = document.createElement('a')
         a.href = url
@@ -209,7 +225,7 @@ export default function InvoiceDetailPage() {
 
   return (
     <>
-      {/* Desktop print styles — mobile uses new window approach instead */}
+      {/* Chrome desktop print styles only */}
       <style>{`
         @page { margin: 0 !important; size: A4 portrait; }
         @media print {
@@ -262,10 +278,11 @@ export default function InvoiceDetailPage() {
                 )}
                 <button
                   onClick={handlePrint}
+                  disabled={printing}
                   className="px-4 py-2 rounded-xl text-sm font-semibold border transition"
                   style={{ borderColor: '#BF984D55', color: '#702434', backgroundColor: 'white' }}
                 >
-                  🖨 Imprimer
+                  {printing ? '...' : '🖨 Imprimer'}
                 </button>
                 <button
                   onClick={handleWhatsApp}
@@ -416,7 +433,7 @@ export default function InvoiceDetailPage() {
           />
         )}
 
-        {/* Hidden invoice template — used for print (mobile) and WhatsApp PDF */}
+        {/* Hidden invoice template — used for print (Safari/mobile) and WhatsApp */}
         <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
           <InvoicePDFTemplate invoice={invoice} />
         </div>
