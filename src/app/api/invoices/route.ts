@@ -3,13 +3,17 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
+  const { searchParams } = new URL(req.url)
+  const from = searchParams.get('from')
+  const to = searchParams.get('to')
+
   // All users see all invoices.
   // Role only affects edit permissions (handled in the UI and detail page).
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('invoices')
     .select(`
       *,
@@ -17,6 +21,12 @@ export async function GET() {
       payments ( amount )
     `)
     .order('created_at', { ascending: false })
+
+  // Apply date range filter if provided
+  if (from) query = query.gte('date', from)
+  if (to) query = query.lte('date', to)
+
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
