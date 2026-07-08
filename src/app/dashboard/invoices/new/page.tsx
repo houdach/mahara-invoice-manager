@@ -280,17 +280,17 @@ export default function InvoiceBuilderPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto px-2 sm:px-0">
 
       {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
+      <div className="flex items-center gap-4 mb-4 sm:mb-8">
         <button onClick={() => router.back()} style={{ color: '#BF984D' }}>← Retour</button>
         <h1 className="text-2xl font-bold" style={{ color: '#702434', fontFamily: 'Playfair Display, serif' }}>
           {isEditMode ? 'Modifier la facture' : 'Nouvelle facture'}
         </h1>
       </div>
 
-      <div className="bg-white rounded-2xl border p-8 space-y-8" style={{ borderColor: '#BF984D22' }}>
+      <div className="bg-white rounded-2xl border p-4 sm:p-8 space-y-6 sm:space-y-8" style={{ borderColor: '#BF984D22' }}>
 
         {/* ── Client ── */}
         <div>

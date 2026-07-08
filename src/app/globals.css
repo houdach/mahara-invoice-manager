@@ -25,3 +25,45 @@ body {
     text-wrap: balance;
   }
 }
+
+/* ── iOS Safari input fixes ──
+   Safari on iPhone applies its own native styling to date and number inputs
+   that overrides our Tailwind classes. This strips the native appearance
+   and forces consistent sizing across all browsers and devices.
+*/
+input[type="date"],
+input[type="number"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="date"] {
+  min-height: 44px;
+  line-height: 1.5;
+  padding: 10px 16px;
+  font-size: 14px;
+  text-align: left;
+  display: block;
+  width: 100%;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Remove spinner arrows on number inputs */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Fix select dropdowns on iOS */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
