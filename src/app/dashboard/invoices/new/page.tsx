@@ -358,8 +358,13 @@ export default function InvoiceBuilderPage() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border outline-none"
-            style={{ borderColor: '#BF984D55', backgroundColor: '#FAF3EE' }}
+            className="w-full px-4 rounded-xl border outline-none text-sm text-left"
+            style={{
+              borderColor: '#BF984D55',
+              backgroundColor: '#FAF3EE',
+              height: '48px',
+              lineHeight: '48px',
+            }}
           />
         </div>
 
@@ -369,7 +374,9 @@ export default function InvoiceBuilderPage() {
           <div className="space-y-4">
             {items.map((item, i) => (
               <div key={i} className="p-4 rounded-xl border" style={{ borderColor: '#BF984D22', backgroundColor: '#FAF3EE55' }}>
-                <div className="flex items-start gap-4">
+
+                {/* Row 1: photo + note side by side */}
+                <div className="flex gap-3 mb-3">
                   <label className="cursor-pointer flex-shrink-0">
                     <input
                       type="file"
@@ -378,51 +385,54 @@ export default function InvoiceBuilderPage() {
                       onChange={(e) => e.target.files?.[0] && handlePhoto(i, e.target.files[0])}
                     />
                     {item.preview ? (
-                      <img src={item.preview} className="w-20 h-20 rounded-xl object-cover border" style={{ borderColor: '#BF984D55' }} />
+                      <img src={item.preview} className="w-20 h-20 rounded-xl object-cover border" style={{ borderColor: '#BF984D55' }} alt="" />
                     ) : (
-                      <div className="w-20 h-20 rounded-xl border-2 border-dashed flex items-center justify-center text-2xl" style={{ borderColor: '#BF984D55' }}>📷</div>
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1" style={{ borderColor: '#BF984D55' }}>
+                        <span className="text-xl">📷</span>
+                        <span className="text-xs" style={{ color: '#BF984D' }}>Photo</span>
+                      </div>
                     )}
                   </label>
+                  <input
+                    type="text"
+                    placeholder="Note (ex: caftan brodé, taille M)"
+                    value={item.note}
+                    onChange={(e) => updateItem(i, 'note', e.target.value)}
+                    className="flex-1 px-3 rounded-xl border outline-none text-sm"
+                    style={{ borderColor: '#BF984D55', backgroundColor: 'white', height: '80px' }}
+                  />
+                </div>
 
-                  <div className="flex-1 space-y-2">
+                {/* Row 2: qty | price | total + remove */}
+                <div className="grid grid-cols-3 gap-2 items-end">
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: '#999' }}>Quantité</label>
                     <input
-                      type="text"
-                      placeholder="Note (ex: caftan brodé, taille M)"
-                      value={item.note}
-                      onChange={(e) => updateItem(i, 'note', e.target.value)}
+                      type="number" min="1" value={item.quantity}
+                      onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
                       className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
                       style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
                     />
-
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="w-20">
-                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Quantité</label>
-                        <input
-                          type="number" min="1" value={item.quantity}
-                          onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
-                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-[120px]">
-                        <label className="block text-xs mb-1" style={{ color: '#999' }}>Prix unitaire (DH)</label>
-                        <input
-                          type="number" min="0" value={item.unit_price}
-                          onChange={(e) => updateItem(i, 'unit_price', Number(e.target.value))}
-                          className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
-                          style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
-                        />
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs mb-1" style={{ color: '#999' }}>Total</p>
-                        <p className="font-semibold text-sm" style={{ color: '#702434' }}>
-                          {(item.quantity * item.unit_price).toLocaleString('fr-MA')} DH
-                        </p>
-                      </div>
-                      {items.length > 1 && (
-                        <button onClick={() => removeItem(i)} className="text-red-400 hover:text-red-600">✕</button>
-                      )}
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: '#999' }}>Prix (DH)</label>
+                    <input
+                      type="number" min="0" value={item.unit_price}
+                      onChange={(e) => updateItem(i, 'unit_price', Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
+                      style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
+                    />
+                  </div>
+                  <div className="flex items-end justify-between pb-0.5">
+                    <div>
+                      <p className="text-xs mb-1" style={{ color: '#999' }}>Total</p>
+                      <p className="font-semibold text-sm" style={{ color: '#702434' }}>
+                        {(item.quantity * item.unit_price).toLocaleString('fr-MA')} DH
+                      </p>
                     </div>
+                    {items.length > 1 && (
+                      <button onClick={() => removeItem(i)} className="text-red-400 ml-1">✕</button>
+                    )}
                   </div>
                 </div>
               </div>

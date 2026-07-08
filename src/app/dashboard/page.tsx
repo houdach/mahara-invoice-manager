@@ -26,7 +26,7 @@ type FilterKey = 'week' | 'month' | 'quarter' | 'year' | 'all'
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'week', label: 'Cette semaine' },
   { key: 'month', label: 'Ce mois' },
-  { key: 'quarter', label: 'Ce trimestre' },
+  { key: 'quarter', label: '3 derniers mois' },
   { key: 'year', label: 'Cette année' },
   { key: 'all', label: 'Tout' },
 ]
@@ -52,8 +52,8 @@ function getDateRange(filter: FilterKey): { from: string | null; to: string | nu
   }
 
   if (filter === 'quarter') {
-    const q = Math.floor(now.getMonth() / 3)
-    const from = new Date(now.getFullYear(), q * 3, 1)
+    const from = new Date(now)
+    from.setMonth(now.getMonth() - 3)
     return { from: fmt(from), to }
   }
 
