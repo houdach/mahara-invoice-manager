@@ -4,7 +4,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useState } from 'react'
-import { MAHARA_LOGO } from '@/lib/logo'
+
+// Served as a static file (not the base64 constant from '@/lib/logo') so this
+// ~72KB image isn't inlined into every dashboard page's JS bundle — the
+// browser fetches/caches it once as a normal asset instead.
+const MAHARA_LOGO = '/mahara-logo.png'
 
 const navItems = [
   { href: '/dashboard', label: 'Tableau de bord', icon: '▦' },

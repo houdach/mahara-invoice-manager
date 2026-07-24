@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { MAHARA_LOGO } from '@/lib/logo'
+
+// Served as a static file (not the base64 constant from '@/lib/logo') so this
+// ~72KB image isn't inlined into the login page's JS bundle.
+const MAHARA_LOGO = '/mahara-logo.png'
 
 export default function LoginPage() {
   const router = useRouter()
