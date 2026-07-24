@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
-import { InvoicePDFTemplate } from '@/components/InvoicePDF'
+import dynamic from 'next/dynamic'
+
+// Code-split the PDF template (and the ~390KB of base64 logo/background it
+// imports) into its own chunk, only fetched once it's actually mounted —
+// keeps it out of the invoice page's initial JS bundle entirely.
+const InvoicePDFTemplate = dynamic(
+  () => import('@/components/InvoicePDF').then((m) => m.InvoicePDFTemplate),
+  { ssr: false }
+)
 
 type Invoice = {
   id: string
@@ -42,6 +50,11 @@ export default function InvoiceDetailPage() {
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [shareNotice, setShareNotice] = useState<string | null>(null)
+  const [waFallbackUrl, setWaFallbackUrl] = useState<string | null>(null)
+  // The PDF template (with its ~390KB of embedded base64 logo/background images)
+  // is only mounted once needed for Print/WhatsApp, not on initial page load.
+  const [templateMounted, setTemplateMounted] = useState(false)
 
   const role = (session?.user as any)?.role
   const userName = session?.user?.name
@@ -57,9 +70,43 @@ export default function InvoiceDetailPage() {
 
   useEffect(() => { fetchInvoice() }, [id])
 
+  // Once the invoice data is in and the page has had a chance to paint, mount
+  // the (heavy, hidden) PDF template and warm up html2canvas/jsPDF in the
+  // background. This keeps first render fast while still making Print/
+  // WhatsApp feel instant once the user actually taps them.
+  useEffect(() => {
+    if (!invoice) return
+    const win = window as any
+    const idle = win.requestIdleCallback || ((cb: () => void) => setTimeout(cb, 300))
+    const cancelIdle = win.cancelIdleCallback || clearTimeout
+    const handle = idle(() => {
+      setTemplateMounted(true)
+      import('html2canvas')
+      import('jspdf')
+    })
+    return () => cancelIdle(handle)
+  }, [invoice])
+
+  // Safety net: if the user taps Print/WhatsApp before the background warm-up
+  // above has had a chance to run, mount the template on demand and wait
+  // until it's actually in the DOM before continuing.
+  async function ensureTemplateMounted() {
+    if (document.getElementById('invoice-pdf-template')) return
+    setTemplateMounted(true)
+    await new Promise<void>((resolve) => {
+      let attempts = 0
+      const check = () => {
+        if (document.getElementById('invoice-pdf-template') || attempts > 200) { resolve(); return }
+        attempts++
+        requestAnimationFrame(check)
+      }
+      requestAnimationFrame(check)
+    })
+  }
+
   // ── SHARED: render invoice template to canvas ──
   // Used by both print and WhatsApp. Extracted to avoid code duplication.
-  async function renderToCanvas(scale = 3) {
+  async function renderToCanvas(scale = 2) {
     const { default: html2canvas } = await import('html2canvas')
     const element = document.getElementById('invoice-pdf-template')
     if (!element) return null
@@ -72,7 +119,6 @@ export default function InvoiceDetailPage() {
         img.onerror = () => resolve()
       })
     ))
-    await new Promise((r) => setTimeout(r, 100))
 
     return html2canvas(element, {
       scale,
@@ -95,6 +141,9 @@ export default function InvoiceDetailPage() {
 
     const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg|OPR/.test(navigator.userAgent)
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+    // The CSS visibility trick needs the template to actually be in the DOM.
+    await ensureTemplateMounted()
 
     if (isChrome && !isMobile) {
       // Chrome desktop: CSS visibility approach is instant and clean
@@ -137,21 +186,40 @@ export default function InvoiceDetailPage() {
   }
 
   // ── WHATSAPP SHARE ──
-  // Mobile: Web Share API shares the PDF file directly to WhatsApp.
   // Desktop: opens WhatsApp window FIRST (preserves Chrome user gesture),
   //          then generates PDF and downloads it, then redirects the WA window.
+  // Mobile: tries the Web Share API to share the PDF file directly to WhatsApp.
+  //         Mobile browsers (Safari in particular) only allow navigator.share()
+  //         while the user's tap is still "fresh" — any slow work (loading
+  //         html2canvas/jsPDF, mounting the template, rendering the canvas)
+  //         before calling it can make it silently fail. To keep that window
+  //         as short as possible we now pre-warm those steps in the background
+  //         (see the idle-callback effect above) so, by the time the user taps
+  //         the button, all that's usually left to do is the canvas capture
+  //         itself. If the native share still fails or isn't supported, we
+  //         fall back to opening the generated PDF in a new tab (mobile PDF
+  //         viewers have their own "Share → WhatsApp" option) plus a
+  //         pre-filled WhatsApp text message, and we surface a visible notice
+  //         instead of failing silently.
   async function handleWhatsApp() {
     if (!invoice) return
     setSharing(true)
+    setShareNotice(null)
+    setWaFallbackUrl(null)
 
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+    // For desktop: open the WA window NOW, before any await, so the browser
+    // still counts it as a direct result of the click (not a blocked popup).
+    const waWindow = !isMobile ? window.open('', '_blank') : null
+
+    let pdfUrl: string | null = null
     try {
-      const { default: jsPDF } = await import('jspdf')
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-
-      // For desktop Chrome: open WA window NOW before any await
-      const waWindow = !isMobile ? window.open('', '_blank') : null
-
-      const canvas = await renderToCanvas()
+      await ensureTemplateMounted()
+      const [{ default: jsPDF }, canvas] = await Promise.all([
+        import('jspdf'),
+        renderToCanvas(),
+      ])
       if (!canvas) { setSharing(false); return }
 
       const imgData = canvas.toDataURL('image/png')
@@ -163,48 +231,77 @@ export default function InvoiceDetailPage() {
       const pdfBlob = pdf.output('blob')
       const fileName = `Facture_${invoice.number}.pdf`
       const file = new File([pdfBlob], fileName, { type: 'application/pdf' })
+      pdfUrl = URL.createObjectURL(pdfBlob)
 
-      if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
-        // Mobile: direct share to WhatsApp via Web Share API
-        await navigator.share({
-          files: [file],
-          title: `Facture ${invoice.number} — Mahara Style`,
-        })
-      } else {
-        // Desktop: download PDF + redirect to WhatsApp Web
-        const url = URL.createObjectURL(pdfBlob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = fileName
-        a.click()
-        URL.revokeObjectURL(url)
+      const rawPhone = invoice.clients?.phone || ''
+      const phone = rawPhone.replace(/\s/g, '').replace(/^0/, '212').replace(/^\+/, '')
 
-        const rawPhone = invoice.clients?.phone || ''
-        const phone = rawPhone.replace(/\s/g, '').replace(/^0/, '212').replace(/^\+/, '')
+      const message = encodeURIComponent(
+        `Bonjour,\n\nVeuillez trouver ci-joint votre facture Mahara Style.\n\n` +
+        `N° : ${invoice.number}\n` +
+        `Total : ${Number(invoice.total).toLocaleString('fr-MA')} DH\n` +
+        (invoice.total_paid > 0 ? `Payé : ${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
+        (invoice.remaining > 0 ? `Reste à payer : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
+        `\nMerci de votre confiance.`
+      )
+      const waUrl = phone
+        ? `https://wa.me/${phone}?text=${message}`
+        : `https://wa.me/?text=${message}`
 
-        const message = encodeURIComponent(
-          `Bonjour,\n\nVeuillez trouver ci-joint votre facture Mahara Style.\n\n` +
-          `N° : ${invoice.number}\n` +
-          `Total : ${Number(invoice.total).toLocaleString('fr-MA')} DH\n` +
-          (invoice.total_paid > 0 ? `Payé : ${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
-          (invoice.remaining > 0 ? `Reste à payer : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
-          `\nMerci de votre confiance.`
-        )
+      let sharedNatively = false
+      if (isMobile && typeof navigator.share === 'function') {
+        try {
+          const canShareFile = !navigator.canShare || navigator.canShare({ files: [file] })
+          if (canShareFile) {
+            await navigator.share({
+              files: [file],
+              title: `Facture ${invoice.number} — Mahara Style`,
+            })
+            sharedNatively = true
+          }
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            // User cancelled the native share sheet — not an error.
+            setSharing(false)
+            return
+          }
+          console.error('Web Share failed, falling back:', shareErr)
+        }
+      }
 
-        const waUrl = phone
-          ? `https://wa.me/${phone}?text=${message}`
-          : `https://wa.me/?text=${message}`
-
-        if (waWindow) {
-          waWindow.location.href = waUrl
+      if (!sharedNatively) {
+        if (isMobile) {
+          // Can't attach a file to a wa.me link, so open the PDF in a new tab
+          // (the phone's own PDF viewer has a native "Share" button that
+          // includes WhatsApp). We deliberately do NOT auto-navigate to
+          // WhatsApp here — a redirect would tear down this page (and the
+          // notice below) before the user ever sees it, so we let them tap
+          // the link themselves instead.
+          window.open(pdfUrl, '_blank')
+          setWaFallbackUrl(waUrl)
+          setShareNotice(
+            "Le partage direct n'est pas disponible sur ce téléphone/navigateur. La facture PDF s'est ouverte dans un nouvel onglet — utilisez son bouton \"Partager\" pour l'envoyer sur WhatsApp, ou ouvrez WhatsApp avec le message déjà préparé."
+          )
         } else {
-          window.open(waUrl, '_blank')
+          // Desktop: download PDF + redirect to WhatsApp Web
+          const a = document.createElement('a')
+          a.href = pdfUrl
+          a.download = fileName
+          a.click()
+
+          if (waWindow) {
+            waWindow.location.href = waUrl
+          } else {
+            window.open(waUrl, '_blank')
+          }
         }
       }
     } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        console.error('WhatsApp share error:', err)
-      }
+      console.error('WhatsApp share error:', err)
+      setShareNotice("Impossible de préparer la facture pour WhatsApp. Merci de réessayer.")
+      waWindow?.close()
+    } finally {
+      if (pdfUrl) setTimeout(() => URL.revokeObjectURL(pdfUrl as string), 10000)
     }
 
     setSharing(false)
@@ -294,6 +391,25 @@ export default function InvoiceDetailPage() {
                 </button>
               </div>
             </div>
+
+            {shareNotice && (
+              <div className="mt-2 px-3 py-2 rounded-xl text-sm flex items-start justify-between gap-3"
+                style={{ backgroundColor: '#FAF3EE', color: '#702434', border: '1px solid #BF984D55' }}>
+                <span>
+                  {shareNotice}
+                  {waFallbackUrl && (
+                    <>
+                      {' '}
+                      <a href={waFallbackUrl} target="_blank" rel="noopener noreferrer"
+                        style={{ color: '#25D366', fontWeight: 600, textDecoration: 'underline' }}>
+                        Ouvrir WhatsApp
+                      </a>
+                    </>
+                  )}
+                </span>
+                <button onClick={() => { setShareNotice(null); setWaFallbackUrl(null) }} style={{ color: '#999' }} aria-label="Fermer">✕</button>
+              </div>
+            )}
 
             <p className="text-sm mt-1" style={{ color: '#999' }}>
               Client : <span style={{ color: '#702434', fontWeight: 600 }}>{invoice.clients?.name}</span>
@@ -433,10 +549,14 @@ export default function InvoiceDetailPage() {
           />
         )}
 
-        {/* Hidden invoice template — used for print (Safari/mobile) and WhatsApp */}
-        <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
-          <InvoicePDFTemplate invoice={invoice} />
-        </div>
+        {/* Hidden invoice template — used for print (Safari/mobile) and WhatsApp.
+            Mounted lazily (see the idle-callback effect above / ensureTemplateMounted)
+            so its ~390KB of embedded logo/background images never block initial render. */}
+        {templateMounted && (
+          <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
+            <InvoicePDFTemplate invoice={invoice} />
+          </div>
+        )}
       </div>
     </>
   )
