@@ -174,26 +174,21 @@ export default function InvoiceBuilderPage() {
           )
         )
 
-        // Upload to Supabase Storage in the background to get a public URL.
-        // The URL is stored in photo_url so the PDF can show a clickable link.
+        // Upload via server-side API route (uses admin client — no RLS issues).
+        // The returned public URL is stored in photo_url so the PDF can embed
+        // a real clickable link annotation pointing directly to the full image.
         try {
-          const blob = await (await fetch(compressed)).blob()
           const fileName = `items/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
-          const { createClient } = await import('@supabase/supabase-js')
-          const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-          )
-          const { error: uploadError } = await supabase.storage
-            .from('invoice-photos')
-            .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false })
-          if (!uploadError) {
-            const { data: urlData } = supabase.storage
-              .from('invoice-photos')
-              .getPublicUrl(fileName)
+          const res = await fetch('/api/upload-photo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64: compressed, fileName }),
+          })
+          if (res.ok) {
+            const { url } = await res.json()
             setItems((prev) =>
               prev.map((item, idx) =>
-                idx === i ? { ...item, photo_url: urlData.publicUrl } : item
+                idx === i ? { ...item, photo_url: url } : item
               )
             )
           }
@@ -205,6 +200,7 @@ export default function InvoiceBuilderPage() {
     }
     reader.readAsDataURL(file)
   }
+
 
   // --- Initial payment helpers (CREATE mode) ---
   function addPayment() {

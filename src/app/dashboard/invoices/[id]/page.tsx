@@ -130,6 +130,28 @@ export default function InvoiceDetailPage() {
     })
   }
 
+  function appendPhotoLinksToPdf(pdf: any) {
+    const container = document.getElementById('invoice-pdf-template')
+    if (!container) return
+    const containerRect = container.getBoundingClientRect()
+    if (containerRect.width === 0) return
+
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const mmPerPx = pdfWidth / containerRect.width
+
+    const photoLinks = container.querySelectorAll('[data-photo-url]')
+    photoLinks.forEach((el) => {
+      const url = el.getAttribute('data-photo-url')
+      if (!url) return
+      const rect = el.getBoundingClientRect()
+      const x = (rect.left - containerRect.left) * mmPerPx
+      const y = (rect.top - containerRect.top) * mmPerPx
+      const w = rect.width * mmPerPx
+      const h = rect.height * mmPerPx
+      pdf.link(x, y, w, h, { url })
+    })
+  }
+
   // ── PRINT ──
   // Strategy:
   // - Chrome desktop: window.print() with CSS visibility trick — fast and clean
@@ -165,6 +187,7 @@ export default function InvoiceDetailPage() {
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      appendPhotoLinksToPdf(pdf)
 
       // Open PDF as blob URL — browser shows native PDF viewer with print dialog
       const pdfBlob = pdf.output('blob')
@@ -227,6 +250,7 @@ export default function InvoiceDetailPage() {
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+      appendPhotoLinksToPdf(pdf)
 
       const pdfBlob = pdf.output('blob')
       const fileName = `Facture_${invoice.number}.pdf`

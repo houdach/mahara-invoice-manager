@@ -176,18 +176,30 @@ export function InvoicePDFTemplate({ invoice }: Props) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       {item.photo_base64 ? (
                         item.photo_url ? (
-                          <a
-                            href={item.photo_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ display: 'block', flexShrink: 0, lineHeight: 0 }}
-                          >
-                            <img
-                              src={item.photo_base64}
-                              alt="Voir photo"
-                              style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: `2px solid ${BURGUNDY}`, flexShrink: 0, cursor: 'pointer' }}
-                            />
-                          </a>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
+                            <a
+                              href={item.photo_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              data-photo-url={item.photo_url}
+                              style={{ display: 'block', lineHeight: 0 }}
+                            >
+                              <img
+                                src={item.photo_base64}
+                                alt="Voir photo"
+                                style={{ width: '65px', height: '65px', objectFit: 'cover', borderRadius: '4px', border: `2px solid ${BURGUNDY}`, cursor: 'pointer' }}
+                              />
+                            </a>
+                            <a
+                              href={item.photo_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              data-photo-url={item.photo_url}
+                              style={{ fontSize: '8px', color: BURGUNDY, textDecoration: 'underline', fontWeight: 'bold' }}
+                            >
+                              🔍 Voir photo
+                            </a>
+                          </div>
                         ) : (
                           <img
                             src={item.photo_base64}
