@@ -328,6 +328,9 @@ export default function InvoiceDetailPage() {
           // Open WhatsApp directly via deep link
           window.location.href = waUrl
         } else {
+          setShareNotice(
+            `📄 La facture PDF (${fileName}) a été téléchargée ! Glissez-la dans WhatsApp Web ou cliquez sur 📎 pour la joindre.`
+          )
           if (waWindow) {
             waWindow.location.href = waUrl
           } else {
