@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 type Client = { id: string; name: string; city?: string; phone?: string }
 type Item = {
   photo_base64: string | null
+  photo_url: string | null
   quantity: number
   unit_price: number
   note: string
@@ -38,7 +39,7 @@ export default function InvoiceBuilderPage() {
   // --- Invoice state ---
   const [date, setDate] = useState(today())
   const [items, setItems] = useState<Item[]>([
-    { photo_base64: null, quantity: 1, unit_price: 0, note: '', preview: null }
+    { photo_base64: null, photo_url: null, quantity: 1, unit_price: 0, note: '', preview: null }
   ])
 
   // --- Initial payments (CREATE mode only) ---
@@ -75,6 +76,7 @@ export default function InvoiceBuilderPage() {
           setItems(
             data.invoice_items.map((item: any) => ({
               photo_base64: item.photo_base64,
+              photo_url: item.photo_url ?? null,
               quantity: item.quantity,
               unit_price: Number(item.unit_price),
               note: item.note || '',
@@ -139,7 +141,7 @@ export default function InvoiceBuilderPage() {
 
   // --- Item helpers ---
   function addItem() {
-    setItems([...items, { photo_base64: null, quantity: 1, unit_price: 0, note: '', preview: null }])
+    setItems([...items, { photo_base64: null, photo_url: null, quantity: 1, unit_price: 0, note: '', preview: null }])
   }
   function removeItem(i: number) {
     setItems(items.filter((_, idx) => idx !== i))
@@ -155,7 +157,7 @@ export default function InvoiceBuilderPage() {
       // We resize to max 800px and compress to 60% JPEG — still looks good in the
       // invoice but reduces payload from ~1MB to ~80KB.
       const img = new window.Image()
-      img.onload = () => {
+      img.onload = async () => {
         const MAX = 800
         const ratio = Math.min(MAX / img.width, MAX / img.height, 1)
         const canvas = document.createElement('canvas')
@@ -164,11 +166,40 @@ export default function InvoiceBuilderPage() {
         const ctx = canvas.getContext('2d')!
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
         const compressed = canvas.toDataURL('image/jpeg', 0.6)
+
+        // Set base64 + preview immediately so the UI feels instant
         setItems((prev) =>
           prev.map((item, idx) =>
             idx === i ? { ...item, photo_base64: compressed, preview: compressed } : item
           )
         )
+
+        // Upload to Supabase Storage in the background to get a public URL.
+        // The URL is stored in photo_url so the PDF can show a clickable link.
+        try {
+          const blob = await (await fetch(compressed)).blob()
+          const fileName = `items/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+          const { createClient } = await import('@supabase/supabase-js')
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          )
+          const { error: uploadError } = await supabase.storage
+            .from('invoice-photos')
+            .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false })
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage
+              .from('invoice-photos')
+              .getPublicUrl(fileName)
+            setItems((prev) =>
+              prev.map((item, idx) =>
+                idx === i ? { ...item, photo_url: urlData.publicUrl } : item
+              )
+            )
+          }
+        } catch (_) {
+          // Upload failed silently — photo still shows in invoice, just no clickable link
+        }
       }
       img.src = e.target?.result as string
     }

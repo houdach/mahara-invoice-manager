@@ -15,7 +15,7 @@ export async function GET(
     .select(`
       *,
       clients ( id, name, phone, city ),
-      invoice_items ( id, photo_base64, quantity, unit_price, note ),
+      invoice_items ( id, photo_base64, photo_url, quantity, unit_price, note ),
       payments ( id, amount, date, note, origine )
     `)
     .eq('id', params.id)
@@ -65,6 +65,7 @@ export async function PATCH(
   const itemsToInsert = items.map((item: any) => ({
     invoice_id: params.id,
     photo_base64: item.photo_base64 || null,
+    photo_url: item.photo_url || null,
     quantity: item.quantity,
     unit_price: item.unit_price,
     note: item.note || null,

@@ -6,6 +6,7 @@ import { BACKGROUND_PATTERN } from '@/lib/background'
 type InvoiceItem = {
   id: string
   photo_base64: string | null
+  photo_url: string | null
   quantity: number
   unit_price: number
   note?: string
@@ -174,11 +175,26 @@ export function InvoicePDFTemplate({ invoice }: Props) {
                   <td style={{ padding: '12px', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       {item.photo_base64 ? (
-                        <img
-                          src={item.photo_base64}
-                          alt=""
-                          style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: `1px solid ${GRAY_LINE}`, flexShrink: 0 }}
-                        />
+                        item.photo_url ? (
+                          <a
+                            href={item.photo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ display: 'block', flexShrink: 0, lineHeight: 0 }}
+                          >
+                            <img
+                              src={item.photo_base64}
+                              alt="Voir photo"
+                              style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: `2px solid ${BURGUNDY}`, flexShrink: 0, cursor: 'pointer' }}
+                            />
+                          </a>
+                        ) : (
+                          <img
+                            src={item.photo_base64}
+                            alt=""
+                            style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '4px', border: `1px solid ${GRAY_LINE}`, flexShrink: 0 }}
+                          />
+                        )
                       ) : (
                         <div style={{ width: '70px', height: '70px', backgroundColor: GRAY_BG, borderRadius: '4px', border: `1px solid ${GRAY_LINE}`, flexShrink: 0 }} />
                       )}

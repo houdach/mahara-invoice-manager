@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
   const itemsToInsert = items.map((item: any) => ({
     invoice_id: invoice.id,
     photo_base64: item.photo_base64 || null,
+    photo_url: item.photo_url || null,
     quantity: item.quantity,
     unit_price: item.unit_price,
     note: item.note || null,
