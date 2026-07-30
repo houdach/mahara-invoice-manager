@@ -278,7 +278,10 @@ export default function InvoiceDetailPage() {
 
       const pdfBlob = pdf.output('blob')
       const fileName = `Facture_${invoice.number}.pdf`
-      const file = new File([pdfBlob], fileName, { type: 'application/pdf' })
+      const file = new File([pdfBlob], fileName, {
+        type: 'application/pdf',
+        lastModified: Date.now(),
+      })
       pdfUrl = URL.createObjectURL(pdfBlob)
 
       const rawPhone = invoice.clients?.phone || ''
@@ -299,17 +302,21 @@ export default function InvoiceDetailPage() {
       let sharedNatively = false
       if (isMobile && typeof navigator.share === 'function') {
         try {
-          const canShareFile = !navigator.canShare || navigator.canShare({ files: [file] })
-          if (canShareFile) {
-            await navigator.share({
-              files: [file],
-              title: `Facture ${invoice.number} — Mahara Style`,
-            })
+          // Android Chrome requires testing { files: [file] } without extra title/text parameters
+          const pureFileShare = { files: [file] }
+          if (navigator.canShare && navigator.canShare(pureFileShare)) {
+            await navigator.share(pureFileShare)
             sharedNatively = true
+          } else {
+            const fullShare = { files: [file], title: `Facture ${invoice.number}` }
+            if (!navigator.canShare || navigator.canShare(fullShare)) {
+              await navigator.share(fullShare)
+              sharedNatively = true
+            }
           }
         } catch (shareErr: any) {
           if (shareErr?.name === 'AbortError') {
-            // User cancelled the native share sheet — not an error.
+            // User closed/canceled native share sheet — normal user action
             setSharing(false)
             return
           }
@@ -318,16 +325,21 @@ export default function InvoiceDetailPage() {
       }
 
       if (!sharedNatively) {
-        // Download the PDF file to user device
-        const a = document.createElement('a')
-        a.href = pdfUrl
-        a.download = fileName
-        a.click()
-
         if (isMobile) {
-          // Open WhatsApp directly via deep link
-          window.location.href = waUrl
+          // On mobile browsers like Chrome iOS where Web Share API rejects local file blobs,
+          // open the generated PDF blob in a tab so the user can use the native Chrome share sheet
+          window.open(pdfUrl, '_blank')
+          setWaFallbackUrl(waUrl)
+          setShareNotice(
+            "Sur ce navigateur mobile, la facture PDF s'est ouverte dans un nouvel onglet. Utilisez le bouton Partager du navigateur pour l'envoyer sur WhatsApp, ou cliquez ci-dessous pour ouvrir la discussion :"
+          )
         } else {
+          // Desktop: download PDF file + redirect to WhatsApp Web
+          const a = document.createElement('a')
+          a.href = pdfUrl
+          a.download = fileName
+          a.click()
+
           setShareNotice(
             `📄 La facture PDF (${fileName}) a été téléchargée ! Glissez-la dans WhatsApp Web ou cliquez sur 📎 pour la joindre.`
           )
