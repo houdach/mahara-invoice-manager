@@ -56,10 +56,34 @@ export default function InvoiceDetailPage() {
   // is only mounted once needed for Print/WhatsApp, not on initial page load.
   const [templateMounted, setTemplateMounted] = useState(false)
 
+  const [deleting, setDeleting] = useState(false)
+
   const role = (session?.user as any)?.role
   const userName = session?.user?.name
 
-  const canEdit = role === 'admin' || (role === 'worker' && invoice?.created_by === userName)
+  const isAdmin = role === 'admin'
+  const canEdit = isAdmin || (role === 'worker' && invoice?.created_by === userName)
+
+  async function handleDelete() {
+    if (!invoice) return
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer la facture ${invoice.number} ? Cette action est irréversible.`)) {
+      return
+    }
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/invoices/${invoice.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        router.push('/dashboard/invoices')
+      } else {
+        const errData = await res.json()
+        alert(errData.error || 'Erreur lors de la suppression')
+        setDeleting(false)
+      }
+    } catch (_) {
+      alert('Erreur lors de la suppression')
+      setDeleting(false)
+    }
+  }
 
   async function fetchInvoice() {
     const res = await fetch(`/api/invoices/${id}`)
@@ -404,6 +428,16 @@ export default function InvoiceDetailPage() {
                 >
                   {sharing ? 'Envoi...' : '📤 WhatsApp'}
                 </button>
+                {isAdmin && (
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold transition text-white"
+                    style={{ backgroundColor: deleting ? '#aaa' : '#dc2626' }}
+                  >
+                    {deleting ? 'Suppression...' : '🗑 Supprimer'}
+                  </button>
+                )}
               </div>
             </div>
 

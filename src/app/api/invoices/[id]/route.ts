@@ -92,3 +92,27 @@ export async function PATCH(
 
   return NextResponse.json({ success: true }, { status: 200 })
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+
+  const role = (session.user as any)?.role
+  if (role !== 'admin') {
+    return NextResponse.json({ error: 'Seul un administrateur peut supprimer une facture' }, { status: 403 })
+  }
+
+  const { error: itemsErr } = await supabaseAdmin.from('invoice_items').delete().eq('invoice_id', params.id)
+  if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 })
+
+  const { error: payErr } = await supabaseAdmin.from('payments').delete().eq('invoice_id', params.id)
+  if (payErr) return NextResponse.json({ error: payErr.message }, { status: 500 })
+
+  const { error: invErr } = await supabaseAdmin.from('invoices').delete().eq('id', params.id)
+  if (invErr) return NextResponse.json({ error: invErr.message }, { status: 500 })
+
+  return NextResponse.json({ success: true })
+}
