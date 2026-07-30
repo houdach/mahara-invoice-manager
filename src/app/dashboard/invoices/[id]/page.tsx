@@ -25,7 +25,7 @@ type Invoice = {
   remaining: number
   created_by?: string
   clients: { id: string; name: string; phone?: string; city?: string }
-  invoice_items: { id: string; photo_base64: string | null; quantity: number; unit_price: number; note?: string }[]
+  invoice_items: { id: string; photo_base64: string | null; photo_url: string | null; quantity: number; unit_price: number; note?: string }[]
   payments: { id: string; amount: number; date: string; origine?: string; note?: string }[]
 }
 
