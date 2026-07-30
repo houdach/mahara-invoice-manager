@@ -106,7 +106,7 @@ export default function InvoiceDetailPage() {
 
   // ── SHARED: render invoice template to canvas ──
   // Used by both print and WhatsApp. Extracted to avoid code duplication.
-  async function renderToCanvas(scale = 2) {
+  async function renderToCanvas(scale = 3) {
     const { default: html2canvas } = await import('html2canvas')
     const element = document.getElementById('invoice-pdf-template')
     if (!element) return null
@@ -294,25 +294,16 @@ export default function InvoiceDetailPage() {
       }
 
       if (!sharedNatively) {
-        if (isMobile) {
-          // Can't attach a file to a wa.me link, so open the PDF in a new tab
-          // (the phone's own PDF viewer has a native "Share" button that
-          // includes WhatsApp). We deliberately do NOT auto-navigate to
-          // WhatsApp here — a redirect would tear down this page (and the
-          // notice below) before the user ever sees it, so we let them tap
-          // the link themselves instead.
-          window.open(pdfUrl, '_blank')
-          setWaFallbackUrl(waUrl)
-          setShareNotice(
-            "Le partage direct n'est pas disponible sur ce téléphone/navigateur. La facture PDF s'est ouverte dans un nouvel onglet — utilisez son bouton \"Partager\" pour l'envoyer sur WhatsApp, ou ouvrez WhatsApp avec le message déjà préparé."
-          )
-        } else {
-          // Desktop: download PDF + redirect to WhatsApp Web
-          const a = document.createElement('a')
-          a.href = pdfUrl
-          a.download = fileName
-          a.click()
+        // Download the PDF file to user device
+        const a = document.createElement('a')
+        a.href = pdfUrl
+        a.download = fileName
+        a.click()
 
+        if (isMobile) {
+          // Open WhatsApp directly via deep link
+          window.location.href = waUrl
+        } else {
           if (waWindow) {
             waWindow.location.href = waUrl
           } else {

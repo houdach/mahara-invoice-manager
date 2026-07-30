@@ -158,14 +158,16 @@ export default function InvoiceBuilderPage() {
       // invoice but reduces payload from ~1MB to ~80KB.
       const img = new window.Image()
       img.onload = async () => {
-        const MAX = 800
+        const MAX = 1600
         const ratio = Math.min(MAX / img.width, MAX / img.height, 1)
         const canvas = document.createElement('canvas')
         canvas.width = Math.round(img.width * ratio)
         canvas.height = Math.round(img.height * ratio)
         const ctx = canvas.getContext('2d')!
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        const compressed = canvas.toDataURL('image/jpeg', 0.6)
+        const compressed = canvas.toDataURL('image/jpeg', 0.88)
 
         // Set base64 + preview immediately so the UI feels instant
         setItems((prev) =>
