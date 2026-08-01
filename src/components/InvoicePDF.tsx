@@ -23,6 +23,7 @@ type Payment = {
   amount: number
   date: string
   origine?: string
+  note?: string
 }
 
 type Props = {
@@ -36,6 +37,7 @@ type Props = {
     invoice_items: InvoiceItem[]
     payments?: Payment[]
   }
+  hideConfidential?: boolean
 }
 
 const BURGUNDY = '#702434'
@@ -44,7 +46,7 @@ const GRAY_LINE = '#dcdcdc'
 const GRAY_BG = '#f4f4f4'
 const GRAY_TEXT = '#555555'
 
-export function InvoicePDFTemplate({ invoice }: Props) {
+export function InvoicePDFTemplate({ invoice, hideConfidential = false }: Props) {
   const sortedPayments = [...(invoice.payments || [])]
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
@@ -255,9 +257,10 @@ export function InvoicePDFTemplate({ invoice }: Props) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
                 <thead>
                   <tr style={{ backgroundColor: GRAY_BG }}>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '34%' }}>Date</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '33%' }}>Montant</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '33%' }}>Origine</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '25%' }}>Date</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '25%' }}>Montant</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '20%' }}>Origine</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '30%' }}>Note</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -271,6 +274,9 @@ export function InvoicePDFTemplate({ invoice }: Props) {
                       </td>
                       <td style={{ padding: '7px 12px', color: INK }}>
                         {p.origine || '—'}
+                      </td>
+                      <td style={{ padding: '7px 12px', color: GRAY_TEXT, fontStyle: 'italic' }}>
+                        {p.note || '—'}
                       </td>
                     </tr>
                   ))}
@@ -288,13 +294,15 @@ export function InvoicePDFTemplate({ invoice }: Props) {
             </div>
           </div>
           <div style={{ backgroundColor: BURGUNDY, padding: '10px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {[
-              '+212 606 662 336 · myhassan.mara68@gmail.com',
-              'I.C.E : 003016647000073',
-              'IBAN : MA 145 450 21215 4999721 0006 10',
-            ].map((text) => (
-              <span key={text} style={{ color: 'white', fontSize: '8.5px' }}>{text}</span>
-            ))}
+            {hideConfidential ? (
+              <span style={{ color: 'white', fontSize: '8.5px' }}>Marrakech, Maroc · maharastyle.ma</span>
+            ) : (
+              <>
+                <span style={{ color: 'white', fontSize: '8.5px' }}>+212 606 662 336 · myhassan.mara68@gmail.com</span>
+                <span style={{ color: 'white', fontSize: '8.5px' }}>I.C.E : 003016647000073</span>
+                <span style={{ color: 'white', fontSize: '8.5px' }}>IBAN : MA 145 450 21215 4999721 0006 10</span>
+              </>
+            )}
           </div>
           <div style={{ backgroundColor: '#5a1d2a', padding: '5px 40px', textAlign: 'center' }}>
             <span style={{ color: 'white', fontSize: '8.5px', fontStyle: 'italic' }}>

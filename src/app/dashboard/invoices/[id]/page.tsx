@@ -57,6 +57,7 @@ export default function InvoiceDetailPage() {
   const [templateMounted, setTemplateMounted] = useState(false)
 
   const [deleting, setDeleting] = useState(false)
+  const [hideConfidential, setHideConfidential] = useState(false)
 
   const role = (session?.user as any)?.role
   const userName = session?.user?.name
@@ -456,6 +457,22 @@ export default function InvoiceDetailPage() {
               </div>
             </div>
 
+            {/* Confidentiality toggle */}
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={() => setHideConfidential((v) => !v)}
+                className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg transition"
+                style={{
+                  backgroundColor: hideConfidential ? '#702434' : '#f5f5f5',
+                  color: hideConfidential ? 'white' : '#702434',
+                  border: '1px solid #BF984D33',
+                }}
+              >
+                <span>{hideConfidential ? '🔒' : '🔓'}</span>
+                {hideConfidential ? 'Infos confidentielles masquées' : 'Masquer ICE / IBAN / Tél dans le PDF'}
+              </button>
+            </div>
+
             {shareNotice && (
               <div className="mt-2 px-3 py-2 rounded-xl text-sm flex items-start justify-between gap-3"
                 style={{ backgroundColor: '#FAF3EE', color: '#702434', border: '1px solid #BF984D55' }}>
@@ -618,7 +635,7 @@ export default function InvoiceDetailPage() {
             so its ~390KB of embedded logo/background images never block initial render. */}
         {templateMounted && (
           <div style={{ position: 'absolute', left: '-9999px', top: 0, zIndex: -1 }}>
-            <InvoicePDFTemplate invoice={invoice} />
+            <InvoicePDFTemplate invoice={invoice} hideConfidential={hideConfidential} />
           </div>
         )}
       </div>
