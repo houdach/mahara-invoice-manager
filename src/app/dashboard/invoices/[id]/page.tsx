@@ -469,7 +469,7 @@ export default function InvoiceDetailPage() {
                 }}
               >
                 <span>{hideConfidential ? '🔒' : '🔓'}</span>
-                {hideConfidential ? 'Infos confidentielles masquées' : 'Masquer ICE / IBAN / Tél dans le PDF'}
+                {hideConfidential ? 'ICE / IBAN masqués' : 'Masquer ICE / IBAN dans le PDF'}
               </button>
             </div>
 

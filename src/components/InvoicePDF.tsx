@@ -294,11 +294,9 @@ export function InvoicePDFTemplate({ invoice, hideConfidential = false }: Props)
             </div>
           </div>
           <div style={{ backgroundColor: BURGUNDY, padding: '10px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {hideConfidential ? (
-              <span style={{ color: 'white', fontSize: '8.5px' }}>Marrakech, Maroc · maharastyle.ma</span>
-            ) : (
+            <span style={{ color: 'white', fontSize: '8.5px' }}>+212 606 662 336 · myhassan.mara68@gmail.com</span>
+            {!hideConfidential && (
               <>
-                <span style={{ color: 'white', fontSize: '8.5px' }}>+212 606 662 336 · myhassan.mara68@gmail.com</span>
                 <span style={{ color: 'white', fontSize: '8.5px' }}>I.C.E : 003016647000073</span>
                 <span style={{ color: 'white', fontSize: '8.5px' }}>IBAN : MA 145 450 21215 4999721 0006 10</span>
               </>
