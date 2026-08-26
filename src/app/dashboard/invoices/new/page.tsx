@@ -5,11 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 
 // --- Types ---
 type Client = { id: string; name: string; city?: string; phone?: string }
-type Item = {
+// quantity and unit_price stored as strings in UI state to avoid leading-zero display issues
+type ItemState = {
   photo_base64: string | null
   photo_url: string | null
-  quantity: number
-  unit_price: number
+  quantity: string
+  unit_price: string
   note: string
   preview: string | null
 }
@@ -17,6 +18,12 @@ type Payment = { amount: number; date: string; origine: string; note: string }
 
 function today() {
   return new Date().toISOString().split('T')[0]
+}
+
+/** Strip leading zeros while preserving decimals like "0.5". */
+function stripLeadingZeros(val: string): string {
+  if (val === '' || val === '-') return val
+  return val.replace(/^0+(\d)/, '$1')
 }
 
 export default function InvoiceBuilderPage() {
@@ -38,8 +45,8 @@ export default function InvoiceBuilderPage() {
 
   // --- Invoice state ---
   const [date, setDate] = useState(today())
-  const [items, setItems] = useState<Item[]>([
-    { photo_base64: null, photo_url: null, quantity: 1, unit_price: 0, note: '', preview: null }
+  const [items, setItems] = useState<ItemState[]>([
+    { photo_base64: null, photo_url: null, quantity: '1', unit_price: '', note: '', preview: null }
   ])
 
   // --- Initial payments (CREATE mode only) ---
@@ -47,9 +54,10 @@ export default function InvoiceBuilderPage() {
   const [showPaymentSection, setShowPaymentSection] = useState(false)
 
   // --- Payments in EDIT mode ---
-  // Existing payments are loaded read-only from the DB, just for visibility.
+  // Existing payments are shown with a delete button.
   // New payments are queued in memory and POSTed individually on save.
   const [existingPayments, setExistingPayments] = useState<any[]>([])
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null)
   const [newPayments, setNewPayments] = useState<Payment[]>([])
   const [showNewPaymentForm, setShowNewPaymentForm] = useState(false)
 
@@ -77,14 +85,15 @@ export default function InvoiceBuilderPage() {
             data.invoice_items.map((item: any) => ({
               photo_base64: item.photo_base64,
               photo_url: item.photo_url ?? null,
-              quantity: item.quantity,
-              unit_price: Number(item.unit_price),
+              // Store as strings so inputs don't prepend a leading zero
+              quantity: String(item.quantity),
+              unit_price: String(Number(item.unit_price)),
               note: item.note || '',
               preview: item.photo_base64,
             }))
           )
         }
-        // Load existing payments for read-only display
+        // Load existing payments with delete capability
         if (data.payments?.length) {
           setExistingPayments(
             [...data.payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -141,12 +150,12 @@ export default function InvoiceBuilderPage() {
 
   // --- Item helpers ---
   function addItem() {
-    setItems([...items, { photo_base64: null, photo_url: null, quantity: 1, unit_price: 0, note: '', preview: null }])
+    setItems([...items, { photo_base64: null, photo_url: null, quantity: '1', unit_price: '', note: '', preview: null }])
   }
   function removeItem(i: number) {
     setItems(items.filter((_, idx) => idx !== i))
   }
-  function updateItem(i: number, field: keyof Item, value: any) {
+  function updateItem(i: number, field: keyof ItemState, value: any) {
     setItems(items.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)))
   }
   function handlePhoto(i: number, file: File) {
@@ -226,6 +235,25 @@ export default function InvoiceBuilderPage() {
     setNewPayments(newPayments.filter((_, idx) => idx !== i))
   }
 
+  // --- Delete an existing payment (EDIT mode) ---
+  async function deleteExistingPayment(paymentId: string) {
+    if (!editId) return
+    if (!window.confirm('Supprimer ce paiement ?')) return
+    setDeletingPaymentId(paymentId)
+    try {
+      const res = await fetch(`/api/invoices/${editId}/payments/${paymentId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setExistingPayments((prev) => prev.filter((p) => p.id !== paymentId))
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Erreur lors de la suppression du paiement')
+      }
+    } catch {
+      alert('Erreur lors de la suppression du paiement')
+    }
+    setDeletingPaymentId(null)
+  }
+
   // Save each new payment via the payments API. The endpoint handles status recalc.
   async function saveNewPayments(invoiceId: string) {
     const validPayments = newPayments.filter((p) => p.amount > 0)
@@ -238,7 +266,8 @@ export default function InvoiceBuilderPage() {
     }
   }
 
-  const total = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
+  // Parse string-based item fields into numbers for calculations
+  const total = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0)
   const totalInitiallyPaid = initialPayments.reduce((sum, p) => sum + Number(p.amount), 0)
   const totalAlreadyPaid = existingPayments.reduce((s, p) => s + Number(p.amount), 0)
   const totalNewPayments = newPayments.reduce((s, p) => s + Number(p.amount), 0)
@@ -247,7 +276,7 @@ export default function InvoiceBuilderPage() {
   // --- Save handler ---
   async function handleSave() {
     if (!clientName) { setError('Veuillez entrer un nom de client'); return }
-    if (items.some((i) => i.unit_price === 0)) { setError('Veuillez entrer un prix pour chaque article'); return }
+    if (items.some((i) => !i.unit_price || parseFloat(i.unit_price) === 0)) { setError('Veuillez entrer un prix pour chaque article'); return }
     if (!isEditMode && totalInitiallyPaid > total) {
       setError('Le total des paiements dépasse le montant de la facture'); return
     }
@@ -259,12 +288,18 @@ export default function InvoiceBuilderPage() {
     setError('')
 
     const validity = date
+    // Normalise string fields to numbers before sending to the API
+    const numericItems = items.map((item) => ({
+      ...item,
+      quantity: parseFloat(item.quantity) || 1,
+      unit_price: parseFloat(item.unit_price) || 0,
+    }))
 
     if (isEditMode) {
       const res = await fetch(`/api/invoices/${editId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, validity, items }),
+        body: JSON.stringify({ date, validity, items: numericItems }),
       })
       if (res.ok) {
         await saveNewPayments(editId)
@@ -285,7 +320,7 @@ export default function InvoiceBuilderPage() {
           clientCity: isNewClient ? clientCity : undefined,
           date,
           validity,
-          items,
+          items: numericItems,
           initialPayments: initialPayments.filter((p) => p.amount > 0),
         }),
       })
@@ -437,8 +472,10 @@ export default function InvoiceBuilderPage() {
                   <div>
                     <label className="block text-xs mb-1" style={{ color: '#999' }}>Quantité</label>
                     <input
-                      type="number" min="1" value={item.quantity}
-                      onChange={(e) => updateItem(i, 'quantity', Number(e.target.value))}
+                      type="text"
+                      inputMode="numeric"
+                      value={item.quantity}
+                      onChange={(e) => updateItem(i, 'quantity', stripLeadingZeros(e.target.value.replace(/[^0-9]/g, '')))}
                       className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
                       style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
                     />
@@ -446,8 +483,11 @@ export default function InvoiceBuilderPage() {
                   <div>
                     <label className="block text-xs mb-1" style={{ color: '#999' }}>Prix (DH)</label>
                     <input
-                      type="number" min="0" value={item.unit_price}
-                      onChange={(e) => updateItem(i, 'unit_price', Number(e.target.value))}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={item.unit_price}
+                      onChange={(e) => updateItem(i, 'unit_price', stripLeadingZeros(e.target.value.replace(/[^0-9.]/g, '')))}
                       className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
                       style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
                     />
@@ -456,7 +496,7 @@ export default function InvoiceBuilderPage() {
                     <div>
                       <p className="text-xs mb-1" style={{ color: '#999' }}>Total</p>
                       <p className="font-semibold text-sm" style={{ color: '#702434' }}>
-                        {(item.quantity * item.unit_price).toLocaleString('fr-MA')} DH
+                        {((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0)).toLocaleString('fr-MA')} DH
                       </p>
                     </div>
                     {items.length > 1 && (
@@ -506,8 +546,9 @@ export default function InvoiceBuilderPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs mb-1" style={{ color: '#999' }}>Montant (DH)</label>
-                        <input type="number" min="0" value={payment.amount}
-                          onChange={(e) => updatePayment(i, 'amount', Number(e.target.value))}
+                        <input type="text" inputMode="decimal" placeholder="0"
+                          value={payment.amount === 0 ? '' : String(payment.amount)}
+                          onChange={(e) => updatePayment(i, 'amount', parseFloat(stripLeadingZeros(e.target.value.replace(/[^0-9.]/g, ''))) || 0)}
                           className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
                           style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
                       </div>
@@ -568,7 +609,7 @@ export default function InvoiceBuilderPage() {
           <div>
             <h2 className="font-semibold mb-3" style={{ color: '#702434' }}>Paiements</h2>
 
-            {/* Existing payments — read-only */}
+            {/* Existing payments — with delete button */}
             {existingPayments.length > 0 && (
               <div className="mb-4">
                 <p className="text-xs font-medium mb-2" style={{ color: '#999' }}>Paiements enregistrés</p>
@@ -579,6 +620,14 @@ export default function InvoiceBuilderPage() {
                       <p className="text-sm font-semibold" style={{ color: '#2d7a4f' }}>+{Number(p.amount).toLocaleString('fr-MA')} DH</p>
                       <p className="text-sm" style={{ color: '#702434' }}>{p.origine || '—'}</p>
                       <p className="text-sm flex-1" style={{ color: '#999' }}>{p.note || ''}</p>
+                      <button
+                        onClick={() => deleteExistingPayment(p.id)}
+                        disabled={deletingPaymentId === p.id}
+                        className="text-xs text-red-400 hover:text-red-600 flex-shrink-0 ml-auto"
+                        title="Supprimer ce paiement"
+                      >
+                        {deletingPaymentId === p.id ? '...' : '🗑 Supprimer'}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -607,8 +656,9 @@ export default function InvoiceBuilderPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs mb-1" style={{ color: '#999' }}>Montant (DH)</label>
-                        <input type="number" min="0" value={payment.amount}
-                          onChange={(e) => updateNewPayment(i, 'amount', Number(e.target.value))}
+                        <input type="text" inputMode="decimal" placeholder="0"
+                          value={payment.amount === 0 ? '' : String(payment.amount)}
+                          onChange={(e) => updateNewPayment(i, 'amount', parseFloat(stripLeadingZeros(e.target.value.replace(/[^0-9.]/g, ''))) || 0)}
                           className="w-full px-3 py-2 rounded-lg border outline-none text-sm"
                           style={{ borderColor: '#BF984D55', backgroundColor: 'white' }} />
                       </div>
