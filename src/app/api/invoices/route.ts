@@ -43,11 +43,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  // Allow store integration via shared API key (no session required)
+  const apiKey = req.headers.get('x-api-key')
+  const validKey = process.env.STORE_API_KEY
+  const isApiKeyAuth = validKey && apiKey === validKey
+
+  if (!isApiKeyAuth) {
+    const session = await getServerSession(authOptions)
+    if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+  }
 
   // Save actual username as created_by
-  const createdBy = session.user?.name || 'Inconnu'
+  const session = isApiKeyAuth ? null : await getServerSession(authOptions)
+  const createdBy = isApiKeyAuth ? 'Store (API)' : (session?.user?.name || 'Inconnu')
+
 
   const body = await req.json()
   const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments } = body
