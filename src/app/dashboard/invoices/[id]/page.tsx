@@ -150,10 +150,10 @@ export default function InvoiceDetailPage() {
     return html2canvas(element, {
       scale,
       useCORS: true,
-      allowTaint: true,
+      allowTaint: false,
       backgroundColor: '#ffffff',
       logging: false,
-      imageTimeout: 0,
+      imageTimeout: 10000,
     })
   }
 
@@ -188,14 +188,13 @@ export default function InvoiceDetailPage() {
   async function handlePrint() {
     if (!invoice) return
 
-    const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg|OPR/.test(navigator.userAgent)
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
     // The CSS visibility trick needs the template to actually be in the DOM.
     await ensureTemplateMounted()
 
-    if (isChrome && !isMobile) {
-      // Chrome desktop: CSS visibility approach is instant and clean
+    if (!isMobile) {
+      // Desktop (Chrome, Safari, Firefox, Edge): window.print() is instant and never blocked by popups
       window.print()
       return
     }
@@ -259,6 +258,25 @@ export default function InvoiceDetailPage() {
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
+    const rawPhone = invoice.clients?.phone || ''
+    const phone = rawPhone.replace(/\s/g, '').replace(/^0/, '212').replace(/^\+/, '')
+
+    const itemsTotal = invoice.invoice_items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
+    const ancienSolde = Number(invoice.ancien_solde || 0)
+
+    const message = encodeURIComponent(
+      `Bonjour,\n\nVeuillez trouver ci-joint votre facture Mahara Style.\n\n` +
+      `N° : ${invoice.number}\n` +
+      `Total articles : ${itemsTotal.toLocaleString('fr-MA')} DH\n` +
+      (ancienSolde > 0 ? `Ancien solde${invoice.ancien_solde_note ? ` (${invoice.ancien_solde_note})` : ''} : +${ancienSolde.toLocaleString('fr-MA')} DH\n` : '') +
+      (invoice.total_paid > 0 ? `Total payé : -${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
+      (invoice.remaining > 0 ? `TOTAL : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
+      `\nMerci de votre confiance.`
+    )
+    const waUrl = phone
+      ? `https://wa.me/${phone}?text=${message}`
+      : `https://wa.me/?text=${message}`
+
     // For desktop: open the WA window NOW, before any await, so the browser
     // still counts it as a direct result of the click (not a blocked popup).
     const waWindow = !isMobile ? window.open('', '_blank') : null
@@ -270,7 +288,11 @@ export default function InvoiceDetailPage() {
         import('jspdf'),
         renderToCanvas(),
       ])
-      if (!canvas) { setSharing(false); return }
+      if (!canvas) {
+        if (waWindow) waWindow.location.href = waUrl
+        setSharing(false)
+        return
+      }
 
       const imgData = canvas.toDataURL('image/png')
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
@@ -286,25 +308,6 @@ export default function InvoiceDetailPage() {
         lastModified: Date.now(),
       })
       pdfUrl = URL.createObjectURL(pdfBlob)
-
-      const rawPhone = invoice.clients?.phone || ''
-      const phone = rawPhone.replace(/\s/g, '').replace(/^0/, '212').replace(/^\+/, '')
-
-      const itemsTotal = invoice.invoice_items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
-      const ancienSolde = Number(invoice.ancien_solde || 0)
-
-      const message = encodeURIComponent(
-        `Bonjour,\n\nVeuillez trouver ci-joint votre facture Mahara Style.\n\n` +
-        `N° : ${invoice.number}\n` +
-        `Total articles : ${itemsTotal.toLocaleString('fr-MA')} DH\n` +
-        (ancienSolde > 0 ? `Ancien solde${invoice.ancien_solde_note ? ` (${invoice.ancien_solde_note})` : ''} : +${ancienSolde.toLocaleString('fr-MA')} DH\n` : '') +
-        (invoice.total_paid > 0 ? `Total payé : -${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
-        (invoice.remaining > 0 ? `TOTAL : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
-        `\nMerci de votre confiance.`
-      )
-      const waUrl = phone
-        ? `https://wa.me/${phone}?text=${message}`
-        : `https://wa.me/?text=${message}`
 
       let sharedNatively = false
       if (isMobile && typeof navigator.share === 'function') {
@@ -359,8 +362,12 @@ export default function InvoiceDetailPage() {
       }
     } catch (err: any) {
       console.error('WhatsApp share error:', err)
-      setShareNotice("Impossible de préparer la facture pour WhatsApp. Merci de réessayer.")
-      waWindow?.close()
+      if (waWindow) {
+        waWindow.location.href = waUrl
+      } else {
+        window.open(waUrl, '_blank')
+      }
+      setShareNotice("Discussion WhatsApp ouverte. Vous pouvez envoyer le récapitulatif directement.")
     } finally {
       if (pdfUrl) setTimeout(() => URL.revokeObjectURL(pdfUrl as string), 10000)
     }
