@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
     const totalPaid = inv.payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0
     return {
       ...inv,
+      ancien_solde: Number(inv.ancien_solde || 0),
+      ancien_solde_note: inv.ancien_solde_note || null,
       total_paid: totalPaid,
       remaining: Number(inv.total) - totalPaid,
     }
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
 
 
   const body = await req.json()
-  const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments } = body
+  const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments, ancienSolde, ancienSoldeNote } = body
 
   if (!clientName || !items?.length) {
     return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
@@ -98,23 +100,49 @@ export async function POST(req: NextRequest) {
 
   const invoiceNumber = `PF-${clientShortId}-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`
 
-  // Step 3 — calculate total
-  const total = items.reduce((sum: number, item: any) => sum + item.quantity * item.unit_price, 0)
+  // Step 3 — calculate total (items + ancien solde)
+  const itemsTotal = items.reduce((sum: number, item: any) => sum + item.quantity * item.unit_price, 0)
+  const ancienSoldeNum = parseFloat(ancienSolde) || 0
+  const total = itemsTotal + ancienSoldeNum
 
   // Step 4 — create invoice with created_by
-  const { data: invoice, error: invoiceError } = await supabaseAdmin
+  const invoicePayload: any = {
+    number: invoiceNumber,
+    client_id: finalClientId,
+    date,
+    validity,
+    total,
+    status: 'En attente',
+    created_by: createdBy,
+  }
+
+  let invoice: any = null
+  let invoiceError: any = null
+
+  // Try insert with ancien_solde columns
+  const resWithSolde = await supabaseAdmin
     .from('invoices')
     .insert({
-      number: invoiceNumber,
-      client_id: finalClientId,
-      date,
-      validity,
-      total,
-      status: 'En attente',
-      created_by: createdBy,
+      ...invoicePayload,
+      ancien_solde: ancienSoldeNum,
+      ancien_solde_note: ancienSoldeNote || null,
     })
     .select()
     .single()
+
+  if (resWithSolde.error && resWithSolde.error.code === '42703') {
+    // If migration hasn't been run yet in Supabase, fall back to base columns
+    const resFallback = await supabaseAdmin
+      .from('invoices')
+      .insert(invoicePayload)
+      .select()
+      .single()
+    invoice = resFallback.data
+    invoiceError = resFallback.error
+  } else {
+    invoice = resWithSolde.data
+    invoiceError = resWithSolde.error
+  }
 
   if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 500 })
 

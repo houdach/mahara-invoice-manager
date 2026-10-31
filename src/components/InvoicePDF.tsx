@@ -33,6 +33,8 @@ type Props = {
     total: number
     total_paid: number
     remaining: number
+    ancien_solde?: number
+    ancien_solde_note?: string
     clients: Client
     invoice_items: InvoiceItem[]
     payments?: Payment[]
@@ -47,8 +49,18 @@ const GRAY_BG = '#f4f4f4'
 const GRAY_TEXT = '#555555'
 
 export function InvoicePDFTemplate({ invoice, hideConfidential = false }: Props) {
+  const itemsTotal = invoice.invoice_items.reduce(
+    (sum, item) => sum + item.quantity * item.unit_price,
+    0
+  )
+  const ancienSolde = Number(invoice.ancien_solde || 0)
   const sortedPayments = [...(invoice.payments || [])]
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const totalPaid = sortedPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+  // Total containing what he should pay: (itemsTotal + ancienSolde - totalPaid)
+  const netRemaining = (itemsTotal + ancienSolde) - totalPaid
+
+  const hasPaymentsOrSolde = ancienSolde > 0 || sortedPayments.length > 0
 
   return (
     <div
@@ -226,57 +238,70 @@ export function InvoicePDFTemplate({ invoice, hideConfidential = false }: Props)
                 </tr>
               ))}
             </tbody>
+            {/* ── Subtotal for articles if payments/solde exist ── */}
+            {hasPaymentsOrSolde && (
+              <tfoot>
+                <tr style={{ backgroundColor: '#FAF3EE', borderTop: `2px solid ${BURGUNDY}` }}>
+                  <td colSpan={3} style={{ padding: '8px 12px', fontWeight: 'bold', color: BURGUNDY, textAlign: 'right', fontSize: '11px' }}>
+                    Total des articles
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 'bold', color: BURGUNDY, fontSize: '11px' }}>
+                    {itemsTotal.toLocaleString('fr-MA', { minimumFractionDigits: 2 })} MAD
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
 
-          {/* ── TOTALS ── */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: BURGUNDY, color: 'white', padding: '10px 12px', marginTop: '10px', fontWeight: 'bold', fontSize: '12px' }}>
-            <span>Montant T.T.C</span>
-            <span>{Number(invoice.total).toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH</span>
-          </div>
-
-          {invoice.total_paid > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: GRAY_BG, color: INK, padding: '9px 12px', marginTop: '3px', fontWeight: 'bold', fontSize: '12px', border: `1px solid ${GRAY_LINE}` }}>
-              <span>Montant payé</span>
-              <span>{Number(invoice.total_paid).toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH</span>
-            </div>
-          )}
-
-          {invoice.remaining > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', color: BURGUNDY, padding: '9px 12px', marginTop: '3px', fontWeight: 'bold', fontSize: '12px', border: `1.5px solid ${BURGUNDY}` }}>
-              <span>Reste à payer</span>
-              <span>{Number(invoice.remaining).toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH</span>
-            </div>
-          )}
-
-          {/* ── PAYMENTS DETAIL — date, montant, origine ── */}
-          {sortedPayments.length > 0 && (
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 'bold', color: BURGUNDY, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Détail des paiements
+          {/* ── PAYMENTS & ANCIEN SOLDE TABLE (directly after articles) ── */}
+          {hasPaymentsOrSolde && (
+            <div style={{ marginTop: '14px' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 'bold', color: BURGUNDY, marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Règlements & Solde
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
                 <thead>
                   <tr style={{ backgroundColor: GRAY_BG }}>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '25%' }}>Date</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '25%' }}>Montant</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '20%' }}>Origine</th>
-                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '30%' }}>Note</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '22%' }}>Date</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '30%' }}>Désignation</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '23%' }}>Origine / Mode</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 'bold', color: GRAY_TEXT, borderBottom: `1px solid ${GRAY_LINE}`, width: '25%' }}>Montant</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Case Ancien Solde */}
+                  {ancienSolde > 0 && (
+                    <tr style={{ borderBottom: `1px solid ${GRAY_LINE}`, backgroundColor: '#FAF3EE77' }}>
+                      <td style={{ padding: '6px 12px', color: GRAY_TEXT }}>—</td>
+                      <td style={{ padding: '6px 12px', color: BURGUNDY, fontWeight: 'bold' }}>
+                        Ancien solde
+                        {invoice.ancien_solde_note && (
+                          <span style={{ fontWeight: 'normal', color: GRAY_TEXT, fontStyle: 'italic', marginLeft: '6px' }}>
+                            ({invoice.ancien_solde_note})
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '6px 12px', color: GRAY_TEXT }}>Reliquat précédent</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: BURGUNDY, fontWeight: 'bold' }}>
+                        +{ancienSolde.toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Payments list */}
                   {sortedPayments.map((p) => (
                     <tr key={p.id} style={{ borderBottom: `1px solid ${GRAY_LINE}` }}>
-                      <td style={{ padding: '7px 12px', color: INK }}>
+                      <td style={{ padding: '6px 12px', color: INK }}>
                         {new Date(p.date).toLocaleDateString('fr-MA')}
                       </td>
-                      <td style={{ padding: '7px 12px', color: INK, fontWeight: 'bold' }}>
-                        {Number(p.amount).toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH
+                      <td style={{ padding: '6px 12px', color: INK }}>
+                        {p.note || 'Paiement'}
                       </td>
-                      <td style={{ padding: '7px 12px', color: INK }}>
+                      <td style={{ padding: '6px 12px', color: INK }}>
                         {p.origine || '—'}
                       </td>
-                      <td style={{ padding: '7px 12px', color: GRAY_TEXT, fontStyle: 'italic' }}>
-                        {p.note || '—'}
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: '#2d7a4f', fontWeight: 'bold' }}>
+                        -{Number(p.amount).toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH
                       </td>
                     </tr>
                   ))}
@@ -284,6 +309,31 @@ export function InvoicePDFTemplate({ invoice, hideConfidential = false }: Props)
               </table>
             </div>
           )}
+
+          {/* ── FINAL TOTAL (at the very end, contains exactly what the client should pay) ── */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            backgroundColor: BURGUNDY,
+            color: 'white',
+            padding: '10px 14px',
+            marginTop: hasPaymentsOrSolde ? '12px' : '10px',
+            borderRadius: '4px',
+            fontWeight: 'bold',
+            fontSize: '13px',
+            letterSpacing: '0.5px',
+          }}>
+            <span>TOTAL</span>
+            <span>
+              {Math.max(0, netRemaining).toLocaleString('fr-MA', { minimumFractionDigits: 2 })} DH
+              {netRemaining <= 0 && totalPaid > 0 && (
+                <span style={{ fontSize: '10px', fontWeight: 'normal', marginLeft: '8px', opacity: 0.9 }}>
+                  (Facture soldée ✓)
+                </span>
+              )}
+            </span>
+          </div>
         </div>
 
         {/* ── FOOTER ── */}

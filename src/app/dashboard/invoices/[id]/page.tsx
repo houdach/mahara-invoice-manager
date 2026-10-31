@@ -23,6 +23,8 @@ type Invoice = {
   total: number
   total_paid: number
   remaining: number
+  ancien_solde?: number
+  ancien_solde_note?: string
   created_by?: string
   clients: { id: string; name: string; phone?: string; city?: string }
   invoice_items: { id: string; photo_base64: string | null; photo_url: string | null; quantity: number; unit_price: number; note?: string }[]
@@ -288,12 +290,16 @@ export default function InvoiceDetailPage() {
       const rawPhone = invoice.clients?.phone || ''
       const phone = rawPhone.replace(/\s/g, '').replace(/^0/, '212').replace(/^\+/, '')
 
+      const itemsTotal = invoice.invoice_items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
+      const ancienSolde = Number(invoice.ancien_solde || 0)
+
       const message = encodeURIComponent(
         `Bonjour,\n\nVeuillez trouver ci-joint votre facture Mahara Style.\n\n` +
         `N° : ${invoice.number}\n` +
-        `Total : ${Number(invoice.total).toLocaleString('fr-MA')} DH\n` +
-        (invoice.total_paid > 0 ? `Payé : ${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
-        (invoice.remaining > 0 ? `Reste à payer : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
+        `Total articles : ${itemsTotal.toLocaleString('fr-MA')} DH\n` +
+        (ancienSolde > 0 ? `Ancien solde${invoice.ancien_solde_note ? ` (${invoice.ancien_solde_note})` : ''} : +${ancienSolde.toLocaleString('fr-MA')} DH\n` : '') +
+        (invoice.total_paid > 0 ? `Total payé : -${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
+        (invoice.remaining > 0 ? `TOTAL : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
         `\nMerci de votre confiance.`
       )
       const waUrl = phone
@@ -500,29 +506,38 @@ export default function InvoiceDetailPage() {
         </div>
 
         {/* Info card */}
-        <div className="bg-white rounded-2xl border p-6 grid grid-cols-1 sm:grid-cols-3 gap-4" style={{ borderColor: '#BF984D22' }}>
-          <div>
-            <p className="text-xs mb-1" style={{ color: '#999' }}>Date de la facture</p>
-            <p className="font-medium text-sm" style={{ color: '#702434' }}>
-              {new Date(invoice.date).toLocaleDateString('fr-MA')}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs mb-1" style={{ color: '#999' }}>Dernière modification</p>
-            <p className="font-medium text-sm" style={{ color: wasEdited ? '#702434' : '#999' }}>
-              {wasEdited
-                ? new Date(invoice.updated_at).toLocaleDateString('fr-MA') + ' à ' +
-                  new Date(invoice.updated_at).toLocaleTimeString('fr-MA', { hour: '2-digit', minute: '2-digit' })
-                : 'Jamais modifiée'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs mb-1" style={{ color: '#999' }}>Total TTC</p>
-            <p className="font-bold" style={{ color: '#702434' }}>
-              {Number(invoice.total).toLocaleString('fr-MA')} DH
-            </p>
-          </div>
-        </div>
+        {(() => {
+          const itemsTotal = invoice.invoice_items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
+          const ancienSolde = Number(invoice.ancien_solde || 0)
+          return (
+            <div className="bg-white rounded-2xl border p-6 grid grid-cols-1 sm:grid-cols-4 gap-4" style={{ borderColor: '#BF984D22' }}>
+              <div>
+                <p className="text-xs mb-1" style={{ color: '#999' }}>Date de la facture</p>
+                <p className="font-medium text-sm" style={{ color: '#702434' }}>
+                  {new Date(invoice.date).toLocaleDateString('fr-MA')}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs mb-1" style={{ color: '#999' }}>Total articles</p>
+                <p className="font-bold text-sm" style={{ color: '#702434' }}>
+                  {itemsTotal.toLocaleString('fr-MA')} DH
+                </p>
+              </div>
+              <div>
+                <p className="text-xs mb-1" style={{ color: '#999' }}>Ancien solde</p>
+                <p className="font-bold text-sm" style={{ color: ancienSolde > 0 ? '#BF984D' : '#999' }}>
+                  {ancienSolde > 0 ? `+${ancienSolde.toLocaleString('fr-MA')} DH` : '0 DH'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs mb-1" style={{ color: '#999' }}>TOTAL restant</p>
+                <p className="font-bold" style={{ color: '#702434' }}>
+                  {Number(invoice.remaining).toLocaleString('fr-MA')} DH
+                </p>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Articles */}
         <div className="bg-white rounded-2xl border p-6" style={{ borderColor: '#BF984D22' }}>
@@ -566,24 +581,36 @@ export default function InvoiceDetailPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 p-4 rounded-xl" style={{ backgroundColor: '#FAF3EE' }}>
-            <div>
-              <p className="text-xs mb-1" style={{ color: '#999' }}>Total facture</p>
-              <p className="font-bold" style={{ color: '#702434' }}>{Number(invoice.total).toLocaleString('fr-MA')} DH</p>
-            </div>
-            <div>
-              <p className="text-xs mb-1" style={{ color: '#999' }}>Total payé</p>
-              <p className="font-bold" style={{ color: '#2d7a4f' }}>{invoice.total_paid.toLocaleString('fr-MA')} DH</p>
-            </div>
-            <div>
-              <p className="text-xs mb-1" style={{ color: '#999' }}>Reste à payer</p>
-              <p className="font-bold" style={{ color: invoice.remaining > 0 ? '#BF984D' : '#2d7a4f' }}>
-                {invoice.remaining.toLocaleString('fr-MA')} DH
-              </p>
-            </div>
-          </div>
+          {(() => {
+            const itemsTotal = invoice.invoice_items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
+            const ancienSolde = Number(invoice.ancien_solde || 0)
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6 p-4 rounded-xl" style={{ backgroundColor: '#FAF3EE' }}>
+                <div>
+                  <p className="text-xs mb-1" style={{ color: '#999' }}>Total articles</p>
+                  <p className="font-bold" style={{ color: '#702434' }}>{itemsTotal.toLocaleString('fr-MA')} DH</p>
+                </div>
+                <div>
+                  <p className="text-xs mb-1" style={{ color: '#999' }}>Ancien solde</p>
+                  <p className="font-bold" style={{ color: ancienSolde > 0 ? '#BF984D' : '#999' }}>
+                    {ancienSolde > 0 ? `+${ancienSolde.toLocaleString('fr-MA')} DH` : '0 DH'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs mb-1" style={{ color: '#999' }}>Total payé</p>
+                  <p className="font-bold" style={{ color: '#2d7a4f' }}>{invoice.total_paid.toLocaleString('fr-MA')} DH</p>
+                </div>
+                <div>
+                  <p className="text-xs mb-1" style={{ color: '#999' }}>TOTAL restant</p>
+                  <p className="font-bold" style={{ color: invoice.remaining > 0 ? '#BF984D' : '#2d7a4f' }}>
+                    {invoice.remaining.toLocaleString('fr-MA')} DH
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
 
-          {invoice.payments.length === 0 ? (
+          {invoice.payments.length === 0 && (!invoice.ancien_solde || Number(invoice.ancien_solde) === 0) ? (
             <div className="text-center py-8" style={{ color: '#999' }}>
               <p className="text-2xl mb-2">💳</p>
               <p className="text-sm">Aucun paiement enregistré</p>
@@ -595,6 +622,21 @@ export default function InvoiceDetailPage() {
                   <p key={h} className="text-xs font-medium" style={{ color: '#999' }}>{h}</p>
                 ))}
               </div>
+
+              {Number(invoice.ancien_solde) > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-3 py-3 rounded-xl" style={{ backgroundColor: '#FAF3EE77' }}>
+                  <p className="text-sm" style={{ color: '#999' }}>—</p>
+                  <p className="text-sm font-semibold" style={{ color: '#702434' }}>
+                    +{Number(invoice.ancien_solde).toLocaleString('fr-MA')} DH
+                  </p>
+                  <p className="text-sm" style={{ color: '#702434' }}>Ancien solde</p>
+                  <p className="text-sm" style={{ color: '#999' }}>{invoice.ancien_solde_note || 'Commandes antérieures'}</p>
+                  <p className="text-xs sm:text-right" style={{ color: '#BF984D' }}>
+                    Solde initial
+                  </p>
+                </div>
+              )}
+
               {[...invoice.payments]
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                 .map((payment, index, sorted) => {

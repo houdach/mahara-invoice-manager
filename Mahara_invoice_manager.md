@@ -65,8 +65,10 @@ invoices (
   date         date NOT NULL,
   validity     date NOT NULL,                -- date + 15 days
   status       text DEFAULT 'En attente',   -- En attente | Partiel | Soldé
-  total        numeric NOT NULL DEFAULT 0,
-  created_at   timestamp DEFAULT now()
+  total              numeric NOT NULL DEFAULT 0,
+  ancien_solde       numeric DEFAULT 0,            -- previous balance from older orders
+  ancien_solde_note  text,                         -- optional note (e.g. Ancienne facture)
+  created_at         timestamp DEFAULT now()
 )
 
 -- Invoice Line Items

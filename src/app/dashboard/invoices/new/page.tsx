@@ -48,6 +48,9 @@ export default function InvoiceBuilderPage() {
   const [items, setItems] = useState<ItemState[]>([
     { photo_base64: null, photo_url: null, quantity: '1', unit_price: '', note: '', preview: null }
   ])
+  const [ancienSolde, setAncienSolde] = useState('')
+  const [ancienSoldeNote, setAncienSoldeNote] = useState('')
+  const [clientPendingBalance, setClientPendingBalance] = useState<number | null>(null)
 
   // --- Initial payments (CREATE mode only) ---
   const [initialPayments, setInitialPayments] = useState<Payment[]>([])
@@ -79,6 +82,13 @@ export default function InvoiceBuilderPage() {
           setIsNewClient(false)
         }
         setDate(data.date)
+
+        if (data.ancien_solde !== undefined && data.ancien_solde !== null && Number(data.ancien_solde) > 0) {
+          setAncienSolde(String(Number(data.ancien_solde)))
+        }
+        if (data.ancien_solde_note) {
+          setAncienSoldeNote(data.ancien_solde_note)
+        }
 
         if (data.invoice_items?.length) {
           setItems(
@@ -114,6 +124,14 @@ export default function InvoiceBuilderPage() {
       setClientName(decodeURIComponent(prefilledName))
       setClientId(prefilledId)
       setIsNewClient(false)
+      fetch(`/api/clients/${prefilledId}`)
+        .then((r) => r.json())
+        .then((c) => {
+          if (c.total_remaining && c.total_remaining > 0) {
+            setClientPendingBalance(c.total_remaining)
+          }
+        })
+        .catch(() => {})
     }
   }, [])
 
@@ -140,6 +158,17 @@ export default function InvoiceBuilderPage() {
     setIsNewClient(false)
     setShowSuggestions(false)
     setSuggestions([])
+
+    fetch(`/api/clients/${client.id}`)
+      .then((r) => r.json())
+      .then((c) => {
+        if (c.total_remaining && c.total_remaining > 0) {
+          setClientPendingBalance(c.total_remaining)
+        } else {
+          setClientPendingBalance(null)
+        }
+      })
+      .catch(() => setClientPendingBalance(null))
   }
 
   function handleClientType(val: string) {
@@ -267,21 +296,26 @@ export default function InvoiceBuilderPage() {
   }
 
   // Parse string-based item fields into numbers for calculations
-  const total = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0)
+  const itemsTotal = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0), 0)
+  const ancienSoldeNum = parseFloat(stripLeadingZeros(ancienSolde.replace(/[^0-9.]/g, ''))) || 0
+  const totalDue = itemsTotal + ancienSoldeNum
+
   const totalInitiallyPaid = initialPayments.reduce((sum, p) => sum + Number(p.amount), 0)
   const totalAlreadyPaid = existingPayments.reduce((s, p) => s + Number(p.amount), 0)
   const totalNewPayments = newPayments.reduce((s, p) => s + Number(p.amount), 0)
-  const remainingAfterEdit = total - totalAlreadyPaid - totalNewPayments
+  const totalPaidInEdit = totalAlreadyPaid + totalNewPayments
+  const remainingInCreate = totalDue - totalInitiallyPaid
+  const remainingAfterEdit = totalDue - totalPaidInEdit
 
   // --- Save handler ---
   async function handleSave() {
     if (!clientName) { setError('Veuillez entrer un nom de client'); return }
     if (items.some((i) => !i.unit_price || parseFloat(i.unit_price) === 0)) { setError('Veuillez entrer un prix pour chaque article'); return }
-    if (!isEditMode && totalInitiallyPaid > total) {
-      setError('Le total des paiements dépasse le montant de la facture'); return
+    if (!isEditMode && totalInitiallyPaid > totalDue) {
+      setError('Le total des paiements dépasse le montant total dû'); return
     }
-    if (isEditMode && totalAlreadyPaid + totalNewPayments > total) {
-      setError(`Le total payé (${(totalAlreadyPaid + totalNewPayments).toLocaleString('fr-MA')} DH) dépasse le total facture`); return
+    if (isEditMode && totalPaidInEdit > totalDue) {
+      setError(`Le total payé (${totalPaidInEdit.toLocaleString('fr-MA')} DH) dépasse le total dû`); return
     }
 
     setSaving(true)
@@ -299,7 +333,13 @@ export default function InvoiceBuilderPage() {
       const res = await fetch(`/api/invoices/${editId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, validity, items: numericItems }),
+        body: JSON.stringify({
+          date,
+          validity,
+          items: numericItems,
+          ancienSolde: ancienSoldeNum,
+          ancienSoldeNote: ancienSoldeNote.trim(),
+        }),
       })
       if (res.ok) {
         await saveNewPayments(editId)
@@ -322,6 +362,8 @@ export default function InvoiceBuilderPage() {
           validity,
           items: numericItems,
           initialPayments: initialPayments.filter((p) => p.amount > 0),
+          ancienSolde: ancienSoldeNum,
+          ancienSoldeNote: ancienSoldeNote.trim(),
         }),
       })
       if (res.ok) {
@@ -513,13 +555,63 @@ export default function InvoiceBuilderPage() {
           </button>
         </div>
 
-        {/* ── Total ── */}
-        <div className="flex justify-end border-t pt-6" style={{ borderColor: '#BF984D22' }}>
+        {/* ── Sous-total articles ── */}
+        <div className="flex justify-end border-t pt-4" style={{ borderColor: '#BF984D22' }}>
           <div className="text-right">
-            <p className="text-sm" style={{ color: '#999' }}>Total TTC</p>
-            <p className="text-3xl font-bold" style={{ color: '#702434' }}>
-              {total.toLocaleString('fr-MA')} DH
+            <p className="text-xs" style={{ color: '#999' }}>Sous-total articles</p>
+            <p className="text-xl font-bold" style={{ color: '#702434' }}>
+              {itemsTotal.toLocaleString('fr-MA')} DH
             </p>
+          </div>
+        </div>
+
+        {/* ── Ancien solde (commandes précédentes) ── */}
+        <div className="p-4 sm:p-5 rounded-2xl border space-y-3" style={{ borderColor: '#BF984D44', backgroundColor: '#FAF3EE44' }}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="font-semibold text-sm sm:text-base" style={{ color: '#702434' }}>
+                Ancien solde (optionnel)
+              </h2>
+              <p className="text-xs" style={{ color: '#888' }}>
+                Montant restant dû des commandes précédentes si applicable
+              </p>
+            </div>
+            {clientPendingBalance && clientPendingBalance > 0 && !ancienSolde && (
+              <button
+                type="button"
+                onClick={() => setAncienSolde(String(clientPendingBalance))}
+                className="text-xs px-3 py-1.5 rounded-lg border font-medium transition self-start sm:self-auto"
+                style={{ borderColor: '#BF984D', color: '#702434', backgroundColor: '#FAF3EE' }}
+              >
+                💡 Suggérer le solde client : <strong>{clientPendingBalance.toLocaleString('fr-MA')} DH</strong>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-xs mb-1 font-medium" style={{ color: '#702434' }}>Montant ancien solde (DH)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={ancienSolde}
+                onChange={(e) => setAncienSolde(stripLeadingZeros(e.target.value.replace(/[^0-9.]/g, '')))}
+                className="w-full px-3 py-2.5 rounded-xl border outline-none text-sm font-semibold"
+                style={{ borderColor: '#BF984D55', backgroundColor: 'white', color: '#702434' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs mb-1 font-medium" style={{ color: '#702434' }}>Note pour ancien solde (optionnel)</label>
+              <input
+                type="text"
+                placeholder="ex: Ancienne facture, reliquat..."
+                value={ancienSoldeNote}
+                onChange={(e) => setAncienSoldeNote(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border outline-none text-sm"
+                style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
+              />
+            </div>
           </div>
         </div>
 
@@ -595,7 +687,7 @@ export default function InvoiceBuilderPage() {
                       Payé maintenant : <strong style={{ color: '#2d7a4f' }}>{totalInitiallyPaid.toLocaleString('fr-MA')} DH</strong>
                     </p>
                     <p className="text-sm mt-1" style={{ color: '#999' }}>
-                      Reste à payer : <strong style={{ color: '#BF984D' }}>{Math.max(0, total - totalInitiallyPaid).toLocaleString('fr-MA')} DH</strong>
+                      Reste à payer : <strong style={{ color: '#BF984D' }}>{Math.max(0, totalDue - totalInitiallyPaid).toLocaleString('fr-MA')} DH</strong>
                     </p>
                   </div>
                 )}
@@ -722,6 +814,51 @@ export default function InvoiceBuilderPage() {
             )}
           </div>
         )}
+
+        {/* ── Récapitulatif / Total final ── */}
+        <div className="p-5 rounded-2xl space-y-2.5 border" style={{ borderColor: '#BF984D33', backgroundColor: '#FAF3EE' }}>
+          <div className="flex justify-between text-sm">
+            <span style={{ color: '#888' }}>Total des articles :</span>
+            <span className="font-semibold" style={{ color: '#702434' }}>{itemsTotal.toLocaleString('fr-MA')} DH</span>
+          </div>
+
+          {ancienSoldeNum > 0 && (
+            <div className="flex justify-between text-sm">
+              <span style={{ color: '#888' }}>
+                Ancien solde {ancienSoldeNote ? `(${ancienSoldeNote})` : ''} :
+              </span>
+              <span className="font-semibold" style={{ color: '#702434' }}>+{ancienSoldeNum.toLocaleString('fr-MA')} DH</span>
+            </div>
+          )}
+
+          {!isEditMode && totalInitiallyPaid > 0 && (
+            <div className="flex justify-between text-sm">
+              <span style={{ color: '#888' }}>Paiement initial :</span>
+              <span className="font-semibold" style={{ color: '#2d7a4f' }}>-{totalInitiallyPaid.toLocaleString('fr-MA')} DH</span>
+            </div>
+          )}
+
+          {isEditMode && totalAlreadyPaid > 0 && (
+            <div className="flex justify-between text-sm">
+              <span style={{ color: '#888' }}>Déjà payé :</span>
+              <span className="font-semibold" style={{ color: '#2d7a4f' }}>-{totalAlreadyPaid.toLocaleString('fr-MA')} DH</span>
+            </div>
+          )}
+
+          {isEditMode && totalNewPayments > 0 && (
+            <div className="flex justify-between text-sm">
+              <span style={{ color: '#888' }}>Nouveau paiement :</span>
+              <span className="font-semibold" style={{ color: '#2d7a4f' }}>-{totalNewPayments.toLocaleString('fr-MA')} DH</span>
+            </div>
+          )}
+
+          <div className="border-t pt-3 mt-2 flex justify-between items-center" style={{ borderColor: '#BF984D33' }}>
+            <span className="font-bold text-base" style={{ color: '#702434' }}>TOTAL :</span>
+            <span className="font-bold text-2xl" style={{ color: '#702434' }}>
+              {Math.max(0, isEditMode ? remainingAfterEdit : remainingInCreate).toLocaleString('fr-MA')} DH
+            </span>
+          </div>
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

@@ -26,7 +26,13 @@ export async function GET(
   const totalPaid = data.payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0
   const remaining = Number(data.total) - totalPaid
 
-  return NextResponse.json({ ...data, total_paid: totalPaid, remaining })
+  return NextResponse.json({
+    ...data,
+    ancien_solde: Number(data.ancien_solde || 0),
+    ancien_solde_note: data.ancien_solde_note || null,
+    total_paid: totalPaid,
+    remaining,
+  })
 }
 
 export async function PATCH(
@@ -37,22 +43,42 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
   const body = await req.json()
-  const { date, validity, items } = body
+  const { date, validity, items, ancienSolde, ancienSoldeNote } = body
 
   if (!items?.length) {
     return NextResponse.json({ error: 'Au moins un article requis' }, { status: 400 })
   }
 
-  const total = items.reduce((sum: number, item: any) => {
+  const itemsTotal = items.reduce((sum: number, item: any) => {
     return sum + item.quantity * item.unit_price
   }, 0)
+  const ancienSoldeNum = parseFloat(ancienSolde) || 0
+  const total = itemsTotal + ancienSoldeNum
 
-  const { error: invoiceError } = await supabaseAdmin
+  const updatePayload: any = {
+    date,
+    validity,
+    total,
+    updated_at: new Date().toISOString(),
+  }
+
+  let updateRes = await supabaseAdmin
     .from('invoices')
-    .update({ date, validity, total, updated_at: new Date().toISOString() })
+    .update({
+      ...updatePayload,
+      ancien_solde: ancienSoldeNum,
+      ancien_solde_note: ancienSoldeNote || null,
+    })
     .eq('id', params.id)
 
-  if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 500 })
+  if (updateRes.error && updateRes.error.code === '42703') {
+    updateRes = await supabaseAdmin
+      .from('invoices')
+      .update(updatePayload)
+      .eq('id', params.id)
+  }
+
+  if (updateRes.error) return NextResponse.json({ error: updateRes.error.message }, { status: 500 })
 
   const { error: deleteError } = await supabaseAdmin
     .from('invoice_items')
