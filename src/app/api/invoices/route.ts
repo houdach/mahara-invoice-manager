@@ -130,7 +130,14 @@ export async function POST(req: NextRequest) {
     .select()
     .single()
 
-  if (resWithSolde.error && resWithSolde.error.code === '42703') {
+  const isMissingColumnError =
+    resWithSolde.error &&
+    (resWithSolde.error.code === '42703' ||
+      resWithSolde.error.code === 'PGRST204' ||
+      resWithSolde.error.message?.includes('column') ||
+      resWithSolde.error.message?.includes('schema cache'))
+
+  if (isMissingColumnError) {
     // If migration hasn't been run yet in Supabase, fall back to base columns
     const resFallback = await supabaseAdmin
       .from('invoices')

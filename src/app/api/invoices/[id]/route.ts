@@ -71,7 +71,14 @@ export async function PATCH(
     })
     .eq('id', params.id)
 
-  if (updateRes.error && updateRes.error.code === '42703') {
+  const isMissingColumnError =
+    updateRes.error &&
+    (updateRes.error.code === '42703' ||
+      updateRes.error.code === 'PGRST204' ||
+      updateRes.error.message?.includes('column') ||
+      updateRes.error.message?.includes('schema cache'))
+
+  if (isMissingColumnError) {
     updateRes = await supabaseAdmin
       .from('invoices')
       .update(updatePayload)
