@@ -26,10 +26,41 @@ export async function GET(
   const totalPaid = data.payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0
   const remaining = Number(data.total) - totalPaid
 
+  const itemsTotal = data.invoice_items?.reduce(
+    (sum: number, it: any) => sum + Number(it.quantity) * Number(it.unit_price),
+    0
+  ) || 0
+
+  let parsedAuthor = data.created_by || ''
+  let metaSolde = 0
+  let metaNote: string | null = null
+
+  if (parsedAuthor.includes('__meta__')) {
+    const parts = parsedAuthor.split('__meta__')
+    parsedAuthor = parts[0]
+    try {
+      const parsed = JSON.parse(parts[1])
+      if (parsed.s !== undefined) metaSolde = Number(parsed.s)
+      if (parsed.n) metaNote = parsed.n
+    } catch (_) {}
+  }
+
+  let resolvedAncienSolde = 0
+  if (data.ancien_solde !== undefined && data.ancien_solde !== null && Number(data.ancien_solde) > 0) {
+    resolvedAncienSolde = Number(data.ancien_solde)
+  } else if (metaSolde > 0) {
+    resolvedAncienSolde = metaSolde
+  } else if (Number(data.total) > itemsTotal) {
+    resolvedAncienSolde = Number(data.total) - itemsTotal
+  }
+
+  const resolvedNote = data.ancien_solde_note || metaNote || null
+
   return NextResponse.json({
     ...data,
-    ancien_solde: Number(data.ancien_solde || 0),
-    ancien_solde_note: data.ancien_solde_note || null,
+    created_by: parsedAuthor,
+    ancien_solde: resolvedAncienSolde,
+    ancien_solde_note: resolvedNote,
     total_paid: totalPaid,
     remaining,
   })
@@ -79,9 +110,23 @@ export async function PATCH(
       updateRes.error.message?.includes('schema cache'))
 
   if (isMissingColumnError) {
+    const { data: cur } = await supabaseAdmin
+      .from('invoices')
+      .select('created_by')
+      .eq('id', params.id)
+      .single()
+    const rawAuthor = (cur?.created_by || '').split('__meta__')[0] || 'houda'
+    const metaStr =
+      ancienSoldeNum > 0 || ancienSoldeNote
+        ? `__meta__${JSON.stringify({ s: ancienSoldeNum, n: (ancienSoldeNote || '').trim() })}`
+        : ''
+
     updateRes = await supabaseAdmin
       .from('invoices')
-      .update(updatePayload)
+      .update({
+        ...updatePayload,
+        created_by: `${rawAuthor}${metaStr}`,
+      })
       .eq('id', params.id)
   }
 

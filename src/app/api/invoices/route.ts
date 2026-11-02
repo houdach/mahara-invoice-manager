@@ -32,10 +32,30 @@ export async function GET(req: NextRequest) {
 
   const invoices = data.map((inv: any) => {
     const totalPaid = inv.payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0
+    let parsedAuthor = inv.created_by || ''
+    let metaSolde = 0
+    let metaNote: string | null = null
+
+    if (parsedAuthor.includes('__meta__')) {
+      const parts = parsedAuthor.split('__meta__')
+      parsedAuthor = parts[0]
+      try {
+        const parsed = JSON.parse(parts[1])
+        if (parsed.s !== undefined) metaSolde = Number(parsed.s)
+        if (parsed.n) metaNote = parsed.n
+      } catch (_) {}
+    }
+
+    const resolvedSolde =
+      inv.ancien_solde !== undefined && inv.ancien_solde !== null && Number(inv.ancien_solde) > 0
+        ? Number(inv.ancien_solde)
+        : metaSolde
+
     return {
       ...inv,
-      ancien_solde: Number(inv.ancien_solde || 0),
-      ancien_solde_note: inv.ancien_solde_note || null,
+      created_by: parsedAuthor,
+      ancien_solde: resolvedSolde,
+      ancien_solde_note: inv.ancien_solde_note || metaNote || null,
       total_paid: totalPaid,
       remaining: Number(inv.total) - totalPaid,
     }
@@ -138,10 +158,18 @@ export async function POST(req: NextRequest) {
       resWithSolde.error.message?.includes('schema cache'))
 
   if (isMissingColumnError) {
-    // If migration hasn't been run yet in Supabase, fall back to base columns
+    // If migration hasn't been run yet in Supabase, preserve metadata in created_by safely
+    const metaStr =
+      ancienSoldeNum > 0 || ancienSoldeNote
+        ? `__meta__${JSON.stringify({ s: ancienSoldeNum, n: (ancienSoldeNote || '').trim() })}`
+        : ''
+    const fallbackPayload = {
+      ...invoicePayload,
+      created_by: `${createdBy}${metaStr}`,
+    }
     const resFallback = await supabaseAdmin
       .from('invoices')
-      .insert(invoicePayload)
+      .insert(fallbackPayload)
       .select()
       .single()
     invoice = resFallback.data
