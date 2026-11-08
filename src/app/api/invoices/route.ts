@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     let parsedAuthor = inv.created_by || ''
     let metaSolde = 0
     let metaNote: string | null = null
+    let metaDate: string | null = null
 
     if (parsedAuthor.includes('__meta__')) {
       const parts = parsedAuthor.split('__meta__')
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
         const parsed = JSON.parse(parts[1])
         if (parsed.s !== undefined) metaSolde = Number(parsed.s)
         if (parsed.n) metaNote = parsed.n
+        if (parsed.d) metaDate = parsed.d
       } catch (_) {}
     }
 
@@ -56,6 +58,7 @@ export async function GET(req: NextRequest) {
       created_by: parsedAuthor,
       ancien_solde: resolvedSolde,
       ancien_solde_note: inv.ancien_solde_note || metaNote || null,
+      ancien_solde_date: inv.ancien_solde_date || metaDate || null,
       total_paid: totalPaid,
       remaining: Number(inv.total) - totalPaid,
     }
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest) {
 
 
   const body = await req.json()
-  const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments, ancienSolde, ancienSoldeNote } = body
+  const { clientName, clientId, clientPhone, clientCity, date, validity, items, initialPayments, ancienSolde, ancienSoldeNote, ancienSoldeDate } = body
 
   if (!clientName || !items?.length) {
     return NextResponse.json({ error: 'Données manquantes' }, { status: 400 })
@@ -146,6 +149,7 @@ export async function POST(req: NextRequest) {
       ...invoicePayload,
       ancien_solde: ancienSoldeNum,
       ancien_solde_note: ancienSoldeNote || null,
+      ancien_solde_date: ancienSoldeDate || null,
     })
     .select()
     .single()
@@ -160,8 +164,8 @@ export async function POST(req: NextRequest) {
   if (isMissingColumnError) {
     // If migration hasn't been run yet in Supabase, preserve metadata in created_by safely
     const metaStr =
-      ancienSoldeNum > 0 || ancienSoldeNote
-        ? `__meta__${JSON.stringify({ s: ancienSoldeNum, n: (ancienSoldeNote || '').trim() })}`
+      ancienSoldeNum > 0 || ancienSoldeNote || ancienSoldeDate
+        ? `__meta__${JSON.stringify({ s: ancienSoldeNum, n: (ancienSoldeNote || '').trim(), d: ancienSoldeDate || null })}`
         : ''
     const fallbackPayload = {
       ...invoicePayload,

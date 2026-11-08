@@ -34,6 +34,7 @@ export async function GET(
   let parsedAuthor = data.created_by || ''
   let metaSolde = 0
   let metaNote: string | null = null
+  let metaDate: string | null = null
 
   if (parsedAuthor.includes('__meta__')) {
     const parts = parsedAuthor.split('__meta__')
@@ -42,6 +43,7 @@ export async function GET(
       const parsed = JSON.parse(parts[1])
       if (parsed.s !== undefined) metaSolde = Number(parsed.s)
       if (parsed.n) metaNote = parsed.n
+      if (parsed.d) metaDate = parsed.d
     } catch (_) {}
   }
 
@@ -55,12 +57,14 @@ export async function GET(
   }
 
   const resolvedNote = data.ancien_solde_note || metaNote || null
+  const resolvedDate = data.ancien_solde_date || metaDate || null
 
   return NextResponse.json({
     ...data,
     created_by: parsedAuthor,
     ancien_solde: resolvedAncienSolde,
     ancien_solde_note: resolvedNote,
+    ancien_solde_date: resolvedDate,
     total_paid: totalPaid,
     remaining,
   })
@@ -74,7 +78,7 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
 
   const body = await req.json()
-  const { date, validity, items, ancienSolde, ancienSoldeNote } = body
+  const { date, validity, items, ancienSolde, ancienSoldeNote, ancienSoldeDate } = body
 
   if (!items?.length) {
     return NextResponse.json({ error: 'Au moins un article requis' }, { status: 400 })
@@ -99,6 +103,7 @@ export async function PATCH(
       ...updatePayload,
       ancien_solde: ancienSoldeNum,
       ancien_solde_note: ancienSoldeNote || null,
+      ancien_solde_date: ancienSoldeDate || null,
     })
     .eq('id', params.id)
 
@@ -117,8 +122,12 @@ export async function PATCH(
       .single()
     const rawAuthor = (cur?.created_by || '').split('__meta__')[0] || 'houda'
     const metaStr =
-      ancienSoldeNum > 0 || ancienSoldeNote
-        ? `__meta__${JSON.stringify({ s: ancienSoldeNum, n: (ancienSoldeNote || '').trim() })}`
+      ancienSoldeNum > 0 || ancienSoldeNote || ancienSoldeDate
+        ? `__meta__${JSON.stringify({
+            s: ancienSoldeNum,
+            n: (ancienSoldeNote || '').trim(),
+            d: ancienSoldeDate || null,
+          })}`
         : ''
 
     updateRes = await supabaseAdmin

@@ -50,6 +50,7 @@ export default function InvoiceBuilderPage() {
   ])
   const [ancienSolde, setAncienSolde] = useState('')
   const [ancienSoldeNote, setAncienSoldeNote] = useState('')
+  const [ancienSoldeDate, setAncienSoldeDate] = useState('')
   const [clientPendingBalance, setClientPendingBalance] = useState<number | null>(null)
 
   // --- Initial payments (CREATE mode only) ---
@@ -88,6 +89,9 @@ export default function InvoiceBuilderPage() {
         }
         if (data.ancien_solde_note) {
           setAncienSoldeNote(data.ancien_solde_note)
+        }
+        if (data.ancien_solde_date) {
+          setAncienSoldeDate(data.ancien_solde_date)
         }
 
         if (data.invoice_items?.length) {
@@ -339,6 +343,7 @@ export default function InvoiceBuilderPage() {
           items: numericItems,
           ancienSolde: ancienSoldeNum,
           ancienSoldeNote: ancienSoldeNote.trim(),
+          ancienSoldeDate: ancienSoldeDate || null,
         }),
       })
       if (res.ok) {
@@ -364,6 +369,7 @@ export default function InvoiceBuilderPage() {
           initialPayments: initialPayments.filter((p) => p.amount > 0),
           ancienSolde: ancienSoldeNum,
           ancienSoldeNote: ancienSoldeNote.trim(),
+          ancienSoldeDate: ancienSoldeDate || null,
         }),
       })
       if (res.ok) {
@@ -588,7 +594,7 @@ export default function InvoiceBuilderPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
             <div>
               <label className="block text-xs mb-1 font-medium" style={{ color: '#702434' }}>Montant ancien solde (DH)</label>
               <input
@@ -602,10 +608,20 @@ export default function InvoiceBuilderPage() {
               />
             </div>
             <div>
+              <label className="block text-xs mb-1 font-medium" style={{ color: '#702434' }}>Date de l'ancien solde (optionnel)</label>
+              <input
+                type="date"
+                value={ancienSoldeDate}
+                onChange={(e) => setAncienSoldeDate(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border outline-none text-sm"
+                style={{ borderColor: '#BF984D55', backgroundColor: 'white' }}
+              />
+            </div>
+            <div>
               <label className="block text-xs mb-1 font-medium" style={{ color: '#702434' }}>Note pour ancien solde (optionnel)</label>
               <input
                 type="text"
-                placeholder="ex: Ancienne facture, reliquat..."
+                placeholder="ex: Reliquat commande N°12..."
                 value={ancienSoldeNote}
                 onChange={(e) => setAncienSoldeNote(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border outline-none text-sm"

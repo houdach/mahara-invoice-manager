@@ -35,6 +35,7 @@ type Props = {
     remaining: number
     ancien_solde?: number
     ancien_solde_note?: string
+    ancien_solde_date?: string
     clients: Client
     invoice_items: InvoiceItem[]
     payments?: Payment[]
@@ -507,7 +508,11 @@ export function InvoicePDFTemplate({ invoice, hideConfidential = false }: Props)
                       <tbody>
                         {ancienSolde > 0 && (
                           <tr style={{ borderBottom: `1px solid ${GRAY_LINE}`, backgroundColor: '#FAF3EE77' }}>
-                            <td style={{ padding: '5px 10px', color: GRAY_TEXT }}>—</td>
+                            <td style={{ padding: '5px 10px', color: GRAY_TEXT }}>
+                              {invoice.ancien_solde_date
+                                ? new Date(invoice.ancien_solde_date).toLocaleDateString('fr-MA')
+                                : '—'}
+                            </td>
                             <td style={{ padding: '5px 10px', color: BURGUNDY, fontWeight: 'bold' }}>
                               Ancien solde
                               {invoice.ancien_solde_note && (

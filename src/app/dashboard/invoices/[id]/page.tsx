@@ -25,6 +25,7 @@ type Invoice = {
   remaining: number
   ancien_solde?: number
   ancien_solde_note?: string
+  ancien_solde_date?: string
   created_by?: string
   clients: { id: string; name: string; phone?: string; city?: string }
   invoice_items: { id: string; photo_base64: string | null; photo_url: string | null; quantity: number; unit_price: number; note?: string }[]
@@ -290,7 +291,9 @@ export default function InvoiceDetailPage() {
       `Bonjour,\n\nVeuillez trouver ci-joint votre facture Coopérative Al Mahara Al Hirafia.\n\n` +
       `N° : ${invoice.number}\n` +
       `Total articles : ${itemsTotal.toLocaleString('fr-MA')} DH\n` +
-      (ancienSolde > 0 ? `Ancien solde${invoice.ancien_solde_note ? ` (${invoice.ancien_solde_note})` : ''} : +${ancienSolde.toLocaleString('fr-MA')} DH\n` : '') +
+      (ancienSolde > 0
+        ? `Ancien solde${invoice.ancien_solde_date ? ` du ${new Date(invoice.ancien_solde_date).toLocaleDateString('fr-MA')}` : ''}${invoice.ancien_solde_note ? ` (${invoice.ancien_solde_note})` : ''} : +${ancienSolde.toLocaleString('fr-MA')} DH\n`
+        : '') +
       (invoice.total_paid > 0 ? `Total payé : -${Number(invoice.total_paid).toLocaleString('fr-MA')} DH\n` : '') +
       (invoice.remaining > 0 ? `TOTAL : ${Number(invoice.remaining).toLocaleString('fr-MA')} DH\n` : 'Facture soldée ✓\n') +
       `\nMerci de votre confiance.`
@@ -666,7 +669,11 @@ export default function InvoiceDetailPage() {
 
               {Number(invoice.ancien_solde) > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-3 py-3 rounded-xl" style={{ backgroundColor: '#FAF3EE77' }}>
-                  <p className="text-sm" style={{ color: '#999' }}>—</p>
+                  <p className="text-sm" style={{ color: '#999' }}>
+                    {invoice.ancien_solde_date
+                      ? new Date(invoice.ancien_solde_date).toLocaleDateString('fr-MA')
+                      : '—'}
+                  </p>
                   <p className="text-sm font-semibold" style={{ color: '#702434' }}>
                     +{Number(invoice.ancien_solde).toLocaleString('fr-MA')} DH
                   </p>
