@@ -6,8 +6,8 @@ import { Providers } from '@/components/Providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Mahara Style — Factures',
-  description: 'Système de gestion des factures',
+  title: 'Coopérative Al Mahara Al Hirafia — Factures',
+  description: 'Système de gestion des factures — Coopérative Al Mahara Al Hirafia, Marrakech',
 }
 
 export default function RootLayout({

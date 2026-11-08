@@ -52,6 +52,7 @@ export default function InvoiceDetailPage() {
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [shareNotice, setShareNotice] = useState<string | null>(null)
   const [waFallbackUrl, setWaFallbackUrl] = useState<string | null>(null)
   // The PDF template (with its ~390KB of embedded base64 logo/background images)
@@ -132,90 +133,112 @@ export default function InvoiceDetailPage() {
   }
 
   // ── SHARED: render invoice template to canvas ──
-  // Used by both print and WhatsApp. Extracted to avoid code duplication.
-  async function renderToCanvas(scale = 3) {
-    const { default: html2canvas } = await import('html2canvas')
-    const element = document.getElementById('invoice-pdf-template')
-    if (!element) return null
+  // Multi-page PDF generator: captures all .invoice-pdf-page elements and compiles them into an A4 PDF
+  async function generateInvoicePdf(scale = 2) {
+    const template = document.getElementById('invoice-pdf-template')
+    if (!template) return null
 
-    const images = element.querySelectorAll('img')
-    await Promise.all(Array.from(images).map((img) =>
-      new Promise<void>((resolve) => {
-        if (img.complete && img.naturalHeight !== 0) { resolve(); return }
-        img.onload = () => resolve()
-        img.onerror = () => resolve()
+    await ensureTemplateMounted()
+
+    const pageElements = template.querySelectorAll<HTMLElement>('.invoice-pdf-page')
+    if (!pageElements.length) return null
+
+    const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+      import('jspdf'),
+      import('html2canvas'),
+    ])
+
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+    const pdfWidth = pdf.internal.pageSize.getWidth() // 210 mm
+    const pdfHeight = pdf.internal.pageSize.getHeight() // 297 mm
+
+    for (let i = 0; i < pageElements.length; i++) {
+      const pageEl = pageElements[i]
+      if (i > 0) pdf.addPage('a4', 'portrait')
+
+      // Ensure all images on this page are loaded
+      const images = pageEl.querySelectorAll('img')
+      await Promise.all(
+        Array.from(images).map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              if (img.complete && img.naturalHeight !== 0) {
+                resolve()
+                return
+              }
+              img.onload = () => resolve()
+              img.onerror = () => resolve()
+            })
+        )
+      )
+
+      const canvas = await html2canvas(pageEl, {
+        scale,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff',
+        logging: false,
+        imageTimeout: 10000,
       })
-    ))
 
-    return html2canvas(element, {
-      scale,
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: '#ffffff',
-      logging: false,
-      imageTimeout: 10000,
-    })
+      const imgData = canvas.toDataURL('image/png')
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+
+      // Add clickable photo links for this specific page
+      const containerRect = pageEl.getBoundingClientRect()
+      if (containerRect.width > 0) {
+        const mmPerPx = pdfWidth / containerRect.width
+        const photoLinks = pageEl.querySelectorAll('[data-photo-url]')
+        photoLinks.forEach((el) => {
+          const url = el.getAttribute('data-photo-url')
+          if (!url) return
+          const rect = el.getBoundingClientRect()
+          const x = (rect.left - containerRect.left) * mmPerPx
+          const y = (rect.top - containerRect.top) * mmPerPx
+          const w = rect.width * mmPerPx
+          const h = rect.height * mmPerPx
+          pdf.link(x, y, w, h, { url })
+        })
+      }
+    }
+
+    return pdf
   }
 
-  function appendPhotoLinksToPdf(pdf: any) {
-    const container = document.getElementById('invoice-pdf-template')
-    if (!container) return
-    const containerRect = container.getBoundingClientRect()
-    if (containerRect.width === 0) return
-
-    const pdfWidth = pdf.internal.pageSize.getWidth()
-    const mmPerPx = pdfWidth / containerRect.width
-
-    const photoLinks = container.querySelectorAll('[data-photo-url]')
-    photoLinks.forEach((el) => {
-      const url = el.getAttribute('data-photo-url')
-      if (!url) return
-      const rect = el.getBoundingClientRect()
-      const x = (rect.left - containerRect.left) * mmPerPx
-      const y = (rect.top - containerRect.top) * mmPerPx
-      const w = rect.width * mmPerPx
-      const h = rect.height * mmPerPx
-      pdf.link(x, y, w, h, { url })
-    })
+  // ── DOWNLOAD PDF ──
+  async function handleDownloadPdf() {
+    if (!invoice) return
+    setDownloading(true)
+    try {
+      await ensureTemplateMounted()
+      const pdf = await generateInvoicePdf(2)
+      if (pdf) {
+        pdf.save(`Facture_${invoice.number}.pdf`)
+      }
+    } catch (err) {
+      console.error('PDF download error:', err)
+    }
+    setDownloading(false)
   }
 
   // ── PRINT ──
-  // Strategy:
-  // - Chrome desktop: window.print() with CSS visibility trick — fast and clean
-  // - Safari + mobile: html2canvas screenshot → open in new window → print
-  //   This guarantees the footer renders because we print a static image,
-  //   not the live DOM where Safari has absolute positioning issues.
   async function handlePrint() {
     if (!invoice) return
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
-    // The CSS visibility trick needs the template to actually be in the DOM.
     await ensureTemplateMounted()
 
     if (!isMobile) {
-      // Desktop (Chrome, Safari, Firefox, Edge): window.print() is instant and never blocked by popups
       window.print()
       return
     }
 
-    // Safari + mobile: exact same logic as WhatsApp — generate PDF via canvas
-    // then open the PDF blob in a new window and trigger print.
-    // This guarantees footer renders and quality matches WhatsApp output exactly.
     setPrinting(true)
     try {
-      const { default: jsPDF } = await import('jspdf')
-      const canvas = await renderToCanvas(2) // scale 2 for print — faster, still sharp
-      if (!canvas) { setPrinting(false); return }
+      const pdf = await generateInvoicePdf(2)
+      if (!pdf) { setPrinting(false); return }
 
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
-      appendPhotoLinksToPdf(pdf)
-
-      // Open PDF as blob URL — browser shows native PDF viewer with print dialog
       const pdfBlob = pdf.output('blob')
       const pdfUrl = URL.createObjectURL(pdfBlob)
       const printWindow = window.open(pdfUrl, '_blank')
@@ -226,7 +249,6 @@ export default function InvoiceDetailPage() {
           }, 500)
         }
       }
-      // Clean up blob URL after a delay
       setTimeout(() => URL.revokeObjectURL(pdfUrl), 10000)
     } catch (err) {
       console.error('Print error:', err)
@@ -265,7 +287,7 @@ export default function InvoiceDetailPage() {
     const ancienSolde = Number(invoice.ancien_solde || 0)
 
     const message = encodeURIComponent(
-      `Bonjour,\n\nVeuillez trouver ci-joint votre facture Mahara Style.\n\n` +
+      `Bonjour,\n\nVeuillez trouver ci-joint votre facture Coopérative Al Mahara Al Hirafia.\n\n` +
       `N° : ${invoice.number}\n` +
       `Total articles : ${itemsTotal.toLocaleString('fr-MA')} DH\n` +
       (ancienSolde > 0 ? `Ancien solde${invoice.ancien_solde_note ? ` (${invoice.ancien_solde_note})` : ''} : +${ancienSolde.toLocaleString('fr-MA')} DH\n` : '') +
@@ -284,22 +306,12 @@ export default function InvoiceDetailPage() {
     let pdfUrl: string | null = null
     try {
       await ensureTemplateMounted()
-      const [{ default: jsPDF }, canvas] = await Promise.all([
-        import('jspdf'),
-        renderToCanvas(),
-      ])
-      if (!canvas) {
+      const pdf = await generateInvoicePdf(2)
+      if (!pdf) {
         if (waWindow) waWindow.location.href = waUrl
         setSharing(false)
         return
       }
-
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
-      appendPhotoLinksToPdf(pdf)
 
       const pdfBlob = pdf.output('blob')
       const fileName = `Facture_${invoice.number}.pdf`
@@ -390,7 +402,7 @@ export default function InvoiceDetailPage() {
 
   return (
     <>
-      {/* Chrome desktop print styles only */}
+      {/* Desktop print styles */}
       <style>{`
         @page { margin: 0 !important; size: A4 portrait; }
         @media print {
@@ -398,11 +410,25 @@ export default function InvoiceDetailPage() {
           #invoice-pdf-template,
           #invoice-pdf-template * { visibility: visible !important; }
           #invoice-pdf-template {
-            position: fixed !important;
+            position: absolute !important;
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
-            z-index: 9999 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            z-index: 99999 !important;
+          }
+          .invoice-pdf-page {
+            page-break-after: always !important;
+            break-after: page !important;
+            margin: 0 !important;
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .invoice-pdf-page:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
         }
       `}</style>
@@ -448,6 +474,14 @@ export default function InvoiceDetailPage() {
                   style={{ borderColor: '#BF984D55', color: '#702434', backgroundColor: 'white' }}
                 >
                   {printing ? '...' : '🖨 Imprimer'}
+                </button>
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={downloading}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold border transition"
+                  style={{ borderColor: '#BF984D55', color: '#702434', backgroundColor: 'white' }}
+                >
+                  {downloading ? 'Téléchargement...' : '📥 Télécharger PDF'}
                 </button>
                 <button
                   onClick={handleWhatsApp}

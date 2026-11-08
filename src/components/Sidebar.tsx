@@ -23,14 +23,14 @@ export default function Sidebar() {
       <div className="p-6 border-b" style={{ borderColor: '#ffffff22' }}>
         <div className="flex items-center gap-3">
           <div
-            className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
-            style={{ backgroundColor: '#702434' }}
+            className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden border"
+            style={{ backgroundColor: '#702434', borderColor: '#BF984D55' }}
           >
-            <img src={MAHARA_LOGO} alt="Mahara Style Logo" style={{ width: '48px', height: '48px', objectFit: 'contain' }} />
+            <img src={MAHARA_LOGO} alt="Coopérative Al Mahara Al Hirafia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <div>
             <p className="font-bold text-white text-sm" style={{ fontFamily: 'Playfair Display, serif' }}>
-              Mahara Style
+              Al Mahara Al Hirafia
             </p>
             <p className="text-xs" style={{ color: '#BF984D' }}>Gestion des factures</p>
           </div>
@@ -91,13 +91,13 @@ export default function Sidebar() {
       >
         <div className="flex items-center gap-2">
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
-            style={{ backgroundColor: '#702434' }}
+            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden border"
+            style={{ backgroundColor: '#702434', borderColor: '#BF984D55' }}
           >
-            <img src={MAHARA_LOGO} alt="Mahara Style Logo" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
+            <img src={MAHARA_LOGO} alt="Coopérative Al Mahara Al Hirafia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <span className="font-bold text-white text-sm" style={{ fontFamily: 'Playfair Display, serif' }}>
-            Mahara Style
+            Al Mahara Al Hirafia
           </span>
         </div>
         <button

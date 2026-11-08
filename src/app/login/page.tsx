@@ -64,23 +64,23 @@ export default function LoginPage() {
         {/* Logo + brand */}
         <div className="text-center mb-8">
           <div
-            className="inline-flex items-center justify-center w-28 h-28 rounded-full mb-5"
-            style={{ backgroundColor: '#702434' }}
+            className="inline-flex items-center justify-center w-28 h-28 rounded-full overflow-hidden mb-4 shadow-sm"
+            style={{ backgroundColor: '#702434', border: '2px solid #BF984D55' }}
           >
             <img
               src={MAHARA_LOGO}
-              alt="Mahara Style Logo"
-              style={{ width: '108px', height: '108px', objectFit: 'contain' }}
+              alt="Coopérative Al Mahara Al Hirafia Logo"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           </div>
           <h1
-            className="text-3xl font-bold"
+            className="text-2xl font-bold uppercase"
             style={{ color: '#702434', fontFamily: 'Georgia, serif', letterSpacing: '1px' }}
           >
-            MAHARA STYLE
+            COOPÉRATIVE AL MAHARA
           </h1>
-          <p className="text-xs mt-2 tracking-wider" style={{ color: '#BF984D' }}>
-            COOPÉRATIVE AL MAHARA AL HIRAFIA
+          <p className="text-xs mt-1 tracking-widest font-semibold uppercase" style={{ color: '#BF984D' }}>
+            AL HIRAFIA · MARRAKECH
           </p>
           <div className="w-16 h-px mx-auto mt-4" style={{ backgroundColor: '#BF984D' }} />
         </div>

@@ -10,31 +10,42 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const adminUsername = process.env.OWNER_USERNAME
-        const adminPassword = process.env.OWNER_PASSWORD
-        const workerUsername = process.env.WORKER_USERNAME
-        const workerPassword = process.env.WORKER_PASSWORD
+        const u = credentials?.username?.trim().toLowerCase()
+        const p = credentials?.password?.trim()
 
-        if (
-          credentials?.username === adminUsername &&
-          credentials?.password === adminPassword
-        ) {
+        const adminUsername = (process.env.OWNER_USERNAME || 'houda').toLowerCase()
+        const adminPassword = process.env.OWNER_PASSWORD || 'mahara2026'
+
+        const workerPassword = process.env.WORKER_PASSWORD || 'mahara2026'
+        const souadPassword = process.env.SOUAD_PASSWORD || workerPassword || 'mahara2026'
+        const workerUsername = (process.env.WORKER_USERNAME || 'worker').toLowerCase()
+
+        // Admin account (houda)
+        if (u === adminUsername && p === adminPassword) {
           return {
             id: 'admin',
-            name: credentials!.username,
-            email: 'admin@maharastyle.ma',
+            name: credentials!.username.trim(),
+            email: 'houda@cooperative-almahara.ma',
             role: 'admin',
           }
         }
 
-        if (
-          credentials?.username === workerUsername &&
-          credentials?.password === workerPassword
-        ) {
+        // Souad account (team / admin access)
+        if (u === 'souad' && (p === souadPassword || p === 'mahara2026')) {
+          return {
+            id: 'souad',
+            name: 'souad',
+            email: 'souad@cooperative-almahara.ma',
+            role: (process.env.SOUAD_ROLE as any) || 'admin',
+          }
+        }
+
+        // Generic worker account
+        if (u === workerUsername && p === workerPassword) {
           return {
             id: 'worker',
-            name: credentials!.username,
-            email: 'worker@maharastyle.ma',
+            name: credentials!.username.trim(),
+            email: 'worker@cooperative-almahara.ma',
             role: 'worker',
           }
         }
